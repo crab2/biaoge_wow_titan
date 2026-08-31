@@ -444,6 +444,7 @@ do
         if BGA.Frames then
             for _, f in ipairs(BGA.Frames) do
                 f.filter = nil
+                f.filterByScheme = nil
                 if f.player and f.player == BG.playerName then
                     BGA.aura_env.SetFrameColor(f, 1)
                 else
@@ -451,12 +452,16 @@ do
                         local name, link, quality, level, _, _, _, _, EquipLoc, Texture, _, typeID, subclassID, bindType = GetItemInfo(f.itemID)
                         if BG.FilterAll(f.itemID, typeID, EquipLoc, subclassID) then
                             f.filter = true
+                            f.filterByScheme = true
                             BGA.aura_env.SetFrameColor(f, 2)
                         end
                     end
                     if not f.filter then
                         BGA.aura_env.SetFrameColor(f, 0)
                     end
+                end
+                if BG.GearScore_UpdateAuctionFrame then
+                    BG.GearScore_UpdateAuctionFrame(f)
                 end
             end
         end

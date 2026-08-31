@@ -1293,12 +1293,15 @@ BG.Init(function()
             end)
             ShowTooltipGlow(f)
         end
-        -- 过滤
-        f.filter = nil
-        local num = BiaoGe.FilterClassItemDB[RealmId][player].chooseID
+        -- 过滤：职业方案 + 自身用不了的装备（图标/名称黑白，灰框）
+        f.filterByScheme = nil
+        local filterDB = BiaoGe.FilterClassItemDB and BiaoGe.FilterClassItemDB[RealmId]
+            and BiaoGe.FilterClassItemDB[RealmId][player]
+        local num = filterDB and filterDB.chooseID
         if num then
             local name, link, quality, level, _, _, _, _, EquipLoc, Texture, _, typeID, subclassID, bindType = GetItemInfo(f.itemID)
             if BG.FilterAll(f.itemID, typeID, EquipLoc, subclassID) then
+                f.filterByScheme = true
                 f.filter = true
                 if not (f.player and f.player == BG.playerName) then
                     BGA.aura_env.SetFrameColor(f, 2)
@@ -1309,6 +1312,12 @@ BG.Init(function()
                     f.notClick = false
                 end
             end
+        end
+        if f.itemFrame and f.itemFrame.itemTypeText then
+            f.itemFrame.itemTypeText._gsOrig = f.itemFrame.itemTypeText:GetText()
+        end
+        if BG.GearScore_UpdateAuctionFrame then
+            BG.GearScore_UpdateAuctionFrame(f)
         end
 
         tinsert(BG.auctionLogFrame.auctioning, f.itemID)

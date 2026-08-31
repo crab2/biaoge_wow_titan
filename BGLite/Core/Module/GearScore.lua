@@ -2219,6 +2219,33 @@ local function ItemIsUniqueEquip(itemID)
     end
 end
 
+local function TooltipRequirementOK(itemID, link)
+    if not BiaoGeTooltip then
+        return true
+    end
+    BG.Tooltip_SetItemByID(link or itemID)
+    for i = 2, BiaoGeTooltip:NumLines() do
+        local fs = _G["BiaoGeTooltipTextLeft" .. i]
+        if fs then
+            local r, g, b = fs:GetTextColor()
+            if r and r > 0.9 and g and g < 0.2 and b and b < 0.2 then
+                local text = fs:GetText()
+                if text and text ~= "" then
+                    if (ITEM_UNIQUE_EQUIPPABLE and text:find(ITEM_UNIQUE_EQUIPPABLE, 1, true))
+                        or (ITEM_UNIQUE and text == ITEM_UNIQUE)
+                        or (ITEM_SPELL_KNOWN and text:find(ITEM_SPELL_KNOWN, 1, true))
+                    then
+                        -- 唯一/已学会不视为“装备用不了”
+                    else
+                        return false
+                    end
+                end
+            end
+        end
+    end
+    return true
+end
+
 local function ArmorOK(class, typeID, subclassID, equipLoc)
     if typeID ~= 4 then return true end
     if IGNORE_ARMOR_LOC[equipLoc] then return true end
@@ -2274,8 +2301,14 @@ local function WrongStatSchool(stats, db)
     if db.role == "TANK" then
         return casterish and (not tankish) and (not physish)
     end
-    -- melee / ranged DPS: skip pure avoidance tank pieces
-    return tankish and (not physish) and (not casterish)
+    -- 近战/远程：纯坦克回避件，或纯法系件（智力戒指对战士等）
+    if tankish and (not physish) and (not casterish) then
+        return true
+    end
+    if casterish and (not physish) and (not tankish) then
+        return true
+    end
+    return false
 end
 
 local function CappedScore(amount, current, cap, highW)
@@ -2500,6 +2533,11 @@ local function EvalOne(itemID, link, db, w)
     result.typeID = typeID
 
     if typeID and typeID ~= 2 and typeID ~= 4 then
+        if not ItemClassOK(itemID, itemLink or link) then
+            result.suitable = false
+            result.reason = "class"
+            return result
+        end
         result.suitable = false
         result.reason = "notgear"
         return result
@@ -2519,6 +2557,11 @@ local function EvalOne(itemID, link, db, w)
     if not WeaponOK(class, typeID, subclassID, equipLoc, db.role, db.specType) then
         result.suitable = false
         result.reason = "weapon"
+        return result
+    end
+    if not TooltipRequirementOK(itemID, itemLink or link) then
+        result.suitable = false
+        result.reason = "class"
         return result
     end
 
@@ -2607,12 +2650,96 @@ function BG.GearScore_Eval(link)
     return SafeEvalOne(itemID, link, db, w)
 end
 
--- 名称后只显示升级分；自己不能用/不推荐时不挂叉叉，也不出色块描边
+-- 名称后只显示升级分；自己不能用时竞价窗改黑白，不挂叉叉
 local function ShowNameBadge(ev)
     if not ev or not ev.suitable then
         return false
     end
     return true
+end
+
+local GRAY_R, GRAY_G, GRAY_B = 0.62, 0.62, 0.62
+
+local function StripColorCodes(s)
+    if type(s) ~= "string" then
+        return s
+    end
+    return s:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("|H.-|h", ""):gsub("|h", "")
+end
+
+local function PaintAuctionFont(fs, unusable)
+    if not fs then
+        return
+    end
+    if fs._gsOrig == nil then
+        fs._gsOrig = fs:GetText() or ""
+    end
+    if unusable then
+        fs:SetText(StripColorCodes(fs._gsOrig))
+        fs:SetTextColor(GRAY_R, GRAY_G, GRAY_B)
+    else
+        fs:SetText(fs._gsOrig)
+    end
+end
+
+local function IsMeAuction(bidFrame)
+    if BGA and BGA.aura_env and BGA.aura_env.IsMe then
+        return BGA.aura_env.IsMe(bidFrame)
+    end
+    return bidFrame.player and bidFrame.player == BG.playerName
+end
+
+local function ApplyAuctionUnusableLook(bidFrame, unusable)
+    unusable = unusable and true or false
+    bidFrame.unusable = unusable
+    local itemFrame = bidFrame.itemFrame
+    if itemFrame then
+        local iconFrame = itemFrame.iconFrame
+        if iconFrame then
+            if iconFrame.tex then
+                iconFrame.tex:SetDesaturated(unusable)
+                if unusable then
+                    iconFrame.tex:SetVertexColor(0.75, 0.75, 0.75)
+                else
+                    iconFrame.tex:SetVertexColor(1, 1, 1)
+                end
+            end
+            if not bidFrame.IsSmallWindow then
+                if unusable then
+                    iconFrame:SetBackdropBorderColor(0.5, 0.5, 0.5, 1)
+                elseif iconFrame.color then
+                    iconFrame:SetBackdropBorderColor(unpack(iconFrame.color))
+                end
+            end
+        end
+        PaintAuctionFont(itemFrame.itemNameText, unusable)
+        PaintAuctionFont(itemFrame.itemTypeText, unusable)
+        if itemFrame.levelText then
+            if unusable then
+                itemFrame.levelText:SetTextColor(GRAY_R, GRAY_G, GRAY_B)
+            elseif iconFrame and iconFrame.color then
+                itemFrame.levelText:SetTextColor(unpack(iconFrame.color))
+            end
+        end
+        if itemFrame.bindTypeText then
+            if unusable then
+                itemFrame.bindTypeText:SetTextColor(GRAY_R, GRAY_G, GRAY_B)
+            else
+                itemFrame.bindTypeText:SetTextColor(0, 1, 0)
+            end
+        end
+    end
+    if unusable or bidFrame.filterByScheme then
+        bidFrame.filter = true
+        if BGA and BGA.aura_env and BGA.aura_env.SetFrameColor and not IsMeAuction(bidFrame) then
+            BGA.aura_env.SetFrameColor(bidFrame, 2)
+        end
+    else
+        bidFrame.filter = nil
+        if BGA and BGA.aura_env and BGA.aura_env.SetFrameColor and not IsMeAuction(bidFrame) then
+            BGA.aura_env.SetFrameColor(bidFrame, 0)
+        end
+    end
 end
 
 function BG.GearScore_Format(link, long)
@@ -2910,12 +3037,15 @@ function BG.GearScore_UpdateAuctionFrame(bidFrame)
     local parent = badge:GetParent()
     badge:SetFrameLevel((parent:GetFrameLevel() or 0) + 25)
 
+    local link = bidFrame.link or (bidFrame.itemFrame and bidFrame.itemFrame.link)
+    local evLook = link and BG.GearScore_Eval(link)
+    ApplyAuctionUnusableLook(bidFrame, evLook and evLook.suitable == false and evLook.reason ~= "notgear")
+
     if BiaoGe.options.gearScore ~= 1 or BiaoGe.options.gearScoreAuction ~= 1 then
         badge:Hide()
         SetAuctionTextWidths(bidFrame, 50, 50)
         return
     end
-    local link = bidFrame.link or (bidFrame.itemFrame and bidFrame.itemFrame.link)
     if not link then
         badge:Hide()
         SetAuctionTextWidths(bidFrame, 50, 50)
