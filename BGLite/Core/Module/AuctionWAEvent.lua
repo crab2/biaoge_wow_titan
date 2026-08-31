@@ -428,6 +428,7 @@ BG.Init(function()
     texture:SetSize(15, 15)
     texture:SetPoint("LEFT", fontString, "LEFT", fontString:GetWrappedWidth(), 0)
     texture:SetTexture("interface/raidframe/readycheck-ready")
+    auctionFrame.itemFrame.nameHaveTex = texture
     local texture = itemFrame:CreateTexture(nil, "ARTWORK")
     texture:SetAllPoints()
     texture:SetTexture("interface/raidframe/readycheck-ready")
@@ -449,10 +450,8 @@ BG.Init(function()
     fontString:SetText(tooltipClassText)
    end
    fontString:SetJustifyH("LEFT")
+   fontString:SetWordWrap(false)
    auctionFrame.itemFrame.itemTypeText = fontString
-   if BG and BG.GearScore_UpdateAuctionFrame then
-    BG.GearScore_UpdateAuctionFrame(auctionFrame)
-   end
    local statusBar = CreateFrame("StatusBar", nil, frame)
    statusBar:SetPoint("TOPLEFT", itemFrame, "TOPRIGHT", 0, 0)
    statusBar:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
@@ -467,6 +466,9 @@ BG.Init(function()
    fontString2:SetPoint("RIGHT", frame, "RIGHT", -5, 0)
    fontString2:SetTextColor(1, 1, 1)
    auctionFrame.remainingTime = fontString2
+   if BG and BG.GearScore_UpdateAuctionFrame then
+    BG.GearScore_UpdateAuctionFrame(auctionFrame)
+   end
   end
   do
    local width = 190

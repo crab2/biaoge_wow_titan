@@ -431,6 +431,7 @@ function BG.FBZhuangBeiUI(FB, t, b, bb, i, ii, scrollFrame)
 
     -- 内容改变时
     bt:SetScript("OnTextChanged", OnTextChanged)
+    if BG.ScoreText then BG.ScoreText(bt) end
     -- 鼠标按下时
     bt:SetScript("OnMouseDown", function(self, button)
         if button == "RightButton" and not IsAltKeyDown() and self ~= BG.Frame[FB]["boss" .. Maxb[FB] + 2]["zhuangbei" .. i] then

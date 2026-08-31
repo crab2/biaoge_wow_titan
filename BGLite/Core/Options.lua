@@ -132,7 +132,7 @@ t:SetText("|cff" .. "00BFFF" .. "BGLite-金团表格纯净版" .. "|r")
 
     -- 子选项
     local Frames = {}
-    local biaoge, autoAuction, roleOverview, boss, map, others, config, gearScoreOpt
+    local biaoge, autoAuction, roleOverview, boss, map, others, config
     do
         local last
 
@@ -183,7 +183,6 @@ t:SetText("|cff" .. "00BFFF" .. "BGLite-金团表格纯净版" .. "|r")
         autoAuction = BG.OptionsCreateTab("Options_autoAuction", L["自动拍卖"])
         -- Lite: 恢复「其他功能」页（2026-08-24 按 BiaoGe v2.3.5 还原，仅保留有模块支撑的配置项）
         others = BG.OptionsCreateTab("Options_others", L["其他功能"])
-        gearScoreOpt = BG.OptionsCreateTab("Options_gearScore", L["装备评分"])
 
         BG.Init2(function()
             if BiaoGe.options.lastFrame and BG[BiaoGe.options.lastFrame] then
@@ -2151,81 +2150,9 @@ t:SetText("|cff" .. "00BFFF" .. "BGLite-金团表格纯净版" .. "|r")
 
         -- 团长拍卖面板
         do
-            local gens = {
-                [1] = L["第一代拍卖"],
-                [2] = L["第二代拍卖"],
-            }
             local mods = {
                 normal = L["常规模式"],
             }
-
-            -- 控制第一代/第二代切换时启用/禁用关联控件
-            local modDropDown, modText, resetText, resetEdit
-            local function UpdateGen2State()
-                local isGen2 = BiaoGe.Auction.gen == 2
-                if modDropDown then
-                    -- 重建下拉菜单以更新 info.disabled 状态
-                    if modDropDown.open then
-                        LibBG:CloseDropDownMenus()
-                    end
-                end
-                if resetText then
-                    resetText:SetTextColor(isGen2 and 1 or 0.5, isGen2 and 1 or 0.5, isGen2 and 1 or 0.5)
-                end
-                if resetEdit then
-                    if isGen2 then
-                        resetEdit:Enable()
-                        resetEdit:SetTextColor(1, 1, 1)
-                        resetEdit:SetText(BiaoGe.Auction.resetThreshold)
-                    else
-                        resetEdit:Disable()
-                        resetEdit:SetTextColor(0.5, 0.5, 0.5)
-                        resetEdit:SetText(20)
-                    end
-                end
-            end
-
-            -- 拍卖版本
-            do
-                local key = "gen"
-
-                local t = autoAuction:CreateFontString()
-                t:SetFont(BIAOGE_TEXT_FONT, 15, "OUTLINE")
-                t:SetPoint("TOPLEFT", autoAuction, "TOPLEFT", 15, -h)
-                t:SetTextColor(1, 1, 1)
-                t:SetText(L["拍卖版本："])
-
-                local dropDown = LibBG:Create_UIDropDownMenu(nil, autoAuction)
-                dropDown:SetPoint("LEFT", t, "RIGHT", -10, -2)
-                LibBG:UIDropDownMenu_SetWidth(dropDown, 120)
-                LibBG:UIDropDownMenu_SetText(dropDown, gens[BiaoGe.Auction[key]])
-                LibBG:UIDropDownMenu_SetAnchor(dropDown, 0, 0, "TOP", dropDown, "BOTTOM")
-                BG.dropDownToggle(dropDown)
-
-                LibBG:UIDropDownMenu_Initialize(dropDown, function(self, level)
-                    for gen, genName in pairs(gens) do
-                        local info = LibBG:UIDropDownMenu_CreateInfo()
-                        info.text = genName
-                        info.arg1 = gen
-                        info.func = function()
-                            BiaoGe.Auction[key] = gen
-                            LibBG:UIDropDownMenu_SetText(dropDown, gens[BiaoGe.Auction[key]])
-                            UpdateGen2State()
-                        end
-                        info.checked = gen == BiaoGe.Auction[key]
-                        if gen == 2 then
-                            info.tooltipTitle = L['第二代拍卖']
-                            info.tooltipText = L['需要团员的BGLite版本高于v2.0.0，否则团员无法看见拍卖框。']
-                            info.tooltipOnButton = true
-                        end
-                        LibBG:UIDropDownMenu_AddButton(info)
-                    end
-                end)
-                dropDown:SetScript('OnShow', function()
-                    LibBG:UIDropDownMenu_SetText(dropDown, gens[BiaoGe.Auction[key]])
-                    UpdateGen2State()
-                end)
-            end
 
             -- 拍卖模式
             do
@@ -2233,10 +2160,9 @@ t:SetText("|cff" .. "00BFFF" .. "BGLite-金团表格纯净版" .. "|r")
 
                 local t = autoAuction:CreateFontString()
                 t:SetFont(BIAOGE_TEXT_FONT, 15, "OUTLINE")
-                t:SetPoint("TOPLEFT", autoAuction, "TOPLEFT", 300, -h)
+                t:SetPoint("TOPLEFT", autoAuction, "TOPLEFT", 15, -h)
                 t:SetTextColor(1, 1, 1)
                 t:SetText(L["拍卖模式："])
-                modText = t
 
                 local dropDown = LibBG:Create_UIDropDownMenu(nil, autoAuction)
                 dropDown:SetPoint("LEFT", t, "RIGHT", -10, -2)
@@ -2244,7 +2170,6 @@ t:SetText("|cff" .. "00BFFF" .. "BGLite-金团表格纯净版" .. "|r")
                 LibBG:UIDropDownMenu_SetText(dropDown, mods[BiaoGe.Auction[key]])
                 LibBG:UIDropDownMenu_SetAnchor(dropDown, 0, 0, "TOP", dropDown, "BOTTOM")
                 BG.dropDownToggle(dropDown)
-                modDropDown = dropDown
 
                 LibBG:UIDropDownMenu_Initialize(dropDown, function(self, level)
                     for modKey, modName in pairs(mods) do
@@ -2262,7 +2187,6 @@ t:SetText("|cff" .. "00BFFF" .. "BGLite-金团表格纯净版" .. "|r")
 
                 dropDown:SetScript('OnShow', function()
                     LibBG:UIDropDownMenu_SetText(dropDown, mods[BiaoGe.Auction[key]])
-                    UpdateGen2State()
                 end)
             end
             h = h + 30
@@ -2299,7 +2223,6 @@ t:SetText("|cff" .. "00BFFF" .. "BGLite-金团表格纯净版" .. "|r")
                 t:SetPoint("TOPLEFT", autoAuction, "TOPLEFT", 190, -h)
                 t:SetTextColor(1, 1, 1)
                 t:SetText(L["重置阈值："])
-                resetText = t
 
                 local edit = CreateFrame("EditBox", nil, autoAuction, BG.editTemplate)
                 edit:SetSize(60, 20)
@@ -2314,7 +2237,6 @@ t:SetText("|cff" .. "00BFFF" .. "BGLite-金团表格纯净版" .. "|r")
                 edit:SetScript("OnShow", function(self)
                     edit:SetText(BiaoGe.Auction[name])
                 end)
-                resetEdit = edit
             end
 
             -- 起拍价
@@ -2341,8 +2263,6 @@ t:SetText("|cff" .. "00BFFF" .. "BGLite-金团表格纯净版" .. "|r")
                 end)
             end
 
-            -- 初始状态
-            UpdateGen2State()
         end
         h = h + 35
         O.CreateLine(autoAuction, height - h)
@@ -2862,11 +2782,6 @@ t:SetText("|cff" .. "00BFFF" .. "BGLite-金团表格纯净版" .. "|r")
             end
             h = h + 45
         end
-    end
-
-    -- 装备评分
-    if BG.GearScore_OptionsUI and gearScoreOpt then
-        BG.GearScore_OptionsUI(gearScoreOpt)
     end
 
     end)

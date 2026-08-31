@@ -403,6 +403,33 @@ BG.Init(function()
         text:SetTextColor(RGB(BG.g1))
         text:SetText(L["邮件记录"])
     end
+
+    -- 装备偏好（人物属性 / 自身装备评分设置）
+    BG.GearPrefMainFrame = CreateFrame("Frame", "BG.GearPrefMainFrame", BG.MainFrame)
+    do
+        local mainFrame = BG.GearPrefMainFrame
+        mainFrame:Hide()
+        BG.BackBiaoGe(mainFrame)
+        mainFrame:SetScript("OnShow", function()
+            BG.FrameHide(0)
+            BiaoGe.lastFrame = "GearPref"
+            BG.TabButtonsFB:Hide()
+            if BG.NanDuDropDown then
+                BG.NanDuDropDown.DropDown:Hide()
+            end
+        end)
+        mainFrame:SetScript("OnHide", function(self)
+            if not self:IsShown() and BiaoGe.lastFrame == "GearPref" then
+                BiaoGe.lastFrame = nil
+            end
+        end)
+
+        local text = mainFrame:CreateFontString()
+        text:SetPoint("BOTTOMLEFT", BG.MainFrame, "BOTTOMLEFT", 35, 45)
+        text:SetFont(BIAOGE_TEXT_FONT, 20, "OUTLINE")
+        text:SetTextColor(RGB(BG.g1))
+        text:SetText(L["装备偏好"])
+    end
     ----------生成各副本UI----------
     do
         for k, FB in pairs(BG.FBtable) do
@@ -924,6 +951,7 @@ BG.Init(function()
         -- Lite: 交易/邮件记录面板 tab 编号（对齐 v2.3.5，避让 1-8 主 tab 编号段）
         BG.TradeHistoryMainFrameTabNum = 101
         BG.MailHistoryMainFrameTabNum = 102
+        BG.GearPrefMainFrameTabNum = 103
 
         local r, g, b = GetClassRGB(nil, "player")
         local onEnterDelay = .6
@@ -968,10 +996,8 @@ BG.Init(function()
             bt:SetBackdropBorderColor(GetClassRGB(nil, "player", BG.borderAlpha))
             bt:SetSize(width or 90, 28)
             if #BG.tabButtons == 0 then
-                bt:SetPoint("TOPLEFT", BG.MainFrame, "BOTTOM", -95, 1)
-                elseif false then
-                    -- 什么都没
-                    bt:SetPoint("TOPLEFT", BG.MainFrame, "BOTTOM", -220 - 55, 1)
+                -- 4 个可见 tab（表格 / 对账 / 邮件记录 / 装备偏好），宽 90、间距 3，居中
+                bt:SetPoint("TOPLEFT", BG.MainFrame, "BOTTOM", -185, 1)
             else
                 bt:SetPoint("LEFT", BG.tabButtons[#BG.tabButtons].button, "RIGHT", 3, 0)
             end
@@ -1029,6 +1055,15 @@ BG.Init(function()
             end
         end
         BG.Create_TabButton(BG.MailHistoryMainFrameTabNum, L["邮件记录"], BG.MailHistoryMainFrame)
+
+        local bt = BG.Create_TabButton(BG.GearPrefMainFrameTabNum, L["装备偏好"], BG.GearPrefMainFrame)
+        BG.OnEnterDelay(bt, function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_TOPLEFT", 0, 0)
+            GameTooltip:ClearLines()
+            GameTooltip:AddLine(L["< 装备偏好 >"], 1, 1, 1, true)
+            GameTooltip:AddLine(L["按职业和当前天赋自动判断职责。分数对比你当前的装备，用来判断性价比，不是全团同一张BIS。"], 1, 0.82, 0, true)
+            GameTooltip:Show()
+        end, onEnterDelay, true)
 
         ----------更新已拥有----------
         do

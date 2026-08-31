@@ -3,17 +3,38 @@ local AddonName, ns = ...
 
 local L = ns.L
 local LibBG = ns.LibBG
+local RGB = ns.RGB
 local Maxb = ns.Maxb
 local GetItemID = ns.GetItemID
 
 local player = BG.playerName
 local realmID = BG.realmID
+local GetItemInfoInstant = _G.GetItemInfoInstant or (C_Item and C_Item.GetItemInfoInstant)
+
+local function ItemTypeID(link)
+    if not link then return end
+    if GetItemInfoInstant then
+        local _, _, _, _, _, classID = GetItemInfoInstant(link)
+        if classID then return classID end
+    end
+    return select(12, GetItemInfo(link))
+end
 
 local CR_DEFENSE_SKILL = _G.CR_DEFENSE_SKILL or 2
+local CR_DODGE = _G.CR_DODGE or 3
+local CR_PARRY = _G.CR_PARRY or 4
+local CR_BLOCK = _G.CR_BLOCK or 5
 local CR_HIT_MELEE = _G.CR_HIT_MELEE or 6
 local CR_HIT_RANGED = _G.CR_HIT_RANGED or 7
 local CR_HIT_SPELL = _G.CR_HIT_SPELL or 8
+local CR_CRIT_MELEE = _G.CR_CRIT_MELEE or 9
+local CR_CRIT_RANGED = _G.CR_CRIT_RANGED or 10
+local CR_CRIT_SPELL = _G.CR_CRIT_SPELL or 11
+local CR_HASTE_MELEE = _G.CR_HASTE_MELEE or 18
+local CR_HASTE_RANGED = _G.CR_HASTE_RANGED or 19
+local CR_HASTE_SPELL = _G.CR_HASTE_SPELL or 20
 local CR_EXPERTISE = _G.CR_EXPERTISE or 24
+local CR_ARMOR_PENETRATION = _G.CR_ARMOR_PENETRATION or 25
 
 local BIAS1 = 1.45
 local BIAS2 = 1.18
@@ -28,6 +49,7 @@ local DEFAULT_CAPS = {
     hitSpell17 = 446,
     expertise = 214,
     defense = 140,
+    arp = 1400, -- WotLK 80: ~100% armor penetration
 }
 
 local STAT_KEYS = {
@@ -73,6 +95,300 @@ local WEIGHTS = {
         CRIT = 0.15, HASTE = 0.25, ARPEN = 0, EXPERTISE = 1.10, DEFENSE = 2.00,
         DODGE = 0.80, PARRY = 0.80, BLOCK = 0.50, BLOCKVALUE = 0.20,
         ARMOR = 0.04, DPS = 0.40, MP5 = 0, SOCKET = 1,
+    },
+}
+
+-- iTank-style EP keys → scoring keys. Specific hit/crit/haste variants applied last.
+local EP_TO_SCORE = {
+    str = "STR", agi = "AGI", sta = "STA", int = "INT", spi = "SPI",
+    ap = "AP", rap = "AP", sp = "SP", heal = "HEAL", mp5 = "MP5",
+    armor = "ARMOR", dps = "DPS",
+    hitRating = "HIT", critRating = "CRIT", hasteRating = "HASTE",
+    expertiseRating = "EXPERTISE", arpRating = "ARPEN",
+    dodge = "DODGE", parry = "PARRY", block = "BLOCK",
+    blockValue = "BLOCKVALUE", defense = "DEFENSE",
+    spellHitRating = "HIT_SPELL", spellCritRating = "CRIT", spellHasteRating = "HASTE",
+    rangedHitRating = "HIT", rangedCritChance = "CRIT", rangedHasteRating = "HASTE",
+}
+
+local EP_APPLY_ORDER = {
+    "str", "agi", "sta", "int", "spi",
+    "ap", "sp", "heal", "mp5", "armor", "dps",
+    "hitRating", "critRating", "hasteRating",
+    "expertiseRating", "arpRating",
+    "dodge", "parry", "block", "blockValue", "defense",
+    "rap",
+    "spellHitRating", "spellCritRating", "spellHasteRating",
+    "rangedHitRating", "rangedCritChance", "rangedHasteRating",
+}
+
+-- Per-talent default EP. Shape follows each spec's stat mix (hit vs haste etc.).
+-- Starting points for personal upgrade value, not a raid-wide BiS list.
+-- Green ratings (hit/crit/haste/arp/ap/sp) often outvalue white primaries —
+-- keep the sim/MYGear EP numbers. Weapon DPS is omitted so a slightly faster
+-- weapon does not bury a cheaper piece with better stats. Hit / expertise /
+-- defense / arp stay high because the cap already makes overflow worthless.
+local SPEC_EP = {
+    WARRIOR = {
+        [1] = { -- 武器
+            DPS = {
+                str = 2.314, agi = 1.659, ap = 1.000, hitRating = 2.000, critRating = 1.975,
+                hasteRating = 1.121, arpRating = 2.574, expertiseRating = 1.508, armor = 0.027, dps = 13.233,
+            },
+        },
+        [2] = { -- 狂怒
+            DPS = {
+                str = 2.550, agi = 1.872, ap = 1.000, hitRating = 1.250, critRating = 2.221,
+                hasteRating = 1.890, arpRating = 2.560, expertiseRating = 1.460, armor = 0.027, dps = 6.624,
+            },
+        },
+        [3] = { -- 防护
+            TANK = {
+                str = 1.555, agi = 1.271, sta = 2.336, ap = 0.320, hitRating = 1.432, critRating = 0.925,
+                hasteRating = 0.431, arpRating = 0.155, expertiseRating = 1.440, armor = 0.174,
+                defense = 3.805, block = 1.320, blockValue = 1.373, dodge = 2.056, parry = 2.049, dps = 6.081,
+            },
+        },
+    },
+    PALADIN = {
+        [1] = { -- 神圣
+            HEAL = {
+                int = 1.844, spi = 0.337, sp = 2.000, heal = 2.000, spellCritRating = 1.010,
+                spellHasteRating = 1.200, mp5 = 0.500,
+            },
+        },
+        [2] = { -- 防护
+            TANK = {
+                str = 1.100, agi = 0.620, sta = 1.200, sp = 0.130, ap = 0.260, hitRating = 1.790,
+                critRating = 0.300, hasteRating = 0.170, arpRating = 0.040, expertiseRating = 0.690,
+                armor = 0.070, defense = 2.540, block = 0.520, blockValue = 0.280, dodge = 0.460,
+                parry = 0.610, dps = 3.330,
+            },
+        },
+        [3] = { -- 惩戒
+            DPS = {
+                str = 2.530, agi = 1.530, int = 0.150, sp = 0.320, mp5 = 0.050, hitRating = 2.070,
+                critRating = 1.770, hasteRating = 1.560, ap = 1.000, arpRating = 0.760,
+                expertiseRating = 1.800, dps = 8.030,
+            },
+        },
+    },
+    HUNTER = {
+        [1] = { -- 野兽控制
+            DPS = {
+                agi = 1.903, int = 1.100, rap = 1.000, ap = 1.000, rangedHitRating = 2.000,
+                rangedCritChance = 1.312, rangedHasteRating = 1.038, arpRating = 1.556, dps = 5.221,
+            },
+        },
+        [2] = { -- 射击
+            DPS = {
+                agi = 2.650, sta = 0.500, int = 1.100, rap = 1.000, ap = 1.000, rangedHitRating = 2.500,
+                rangedCritChance = 1.500, rangedHasteRating = 1.390, arpRating = 1.320, dps = 6.320,
+            },
+        },
+        [3] = { -- 生存
+            DPS = {
+                agi = 2.805, sta = 0.462, int = 1.100, rap = 1.000, ap = 1.000, rangedHitRating = 2.934,
+                rangedCritChance = 1.627, rangedHasteRating = 0.885, arpRating = 1.232, dps = 5.070,
+            },
+        },
+    },
+    ROGUE = {
+        [1] = { -- 刺杀
+            DPS = {
+                str = 1.100, agi = 1.900, ap = 1.000, hitRating = 1.910, critRating = 1.568,
+                hasteRating = 1.480, arpRating = 0.950, expertiseRating = 2.375, dps = 3.176,
+            },
+        },
+        [2] = { -- 战斗
+            DPS = {
+                str = 1.100, agi = 1.000, ap = 1.000, hitRating = 2.940, critRating = 1.410,
+                hasteRating = 1.229, arpRating = 1.299, expertiseRating = 1.000, dps = 3.997,
+            },
+        },
+        [3] = { -- 敏锐
+            DPS = {
+                str = 1.100, agi = 2.020, ap = 1.000, hitRating = 1.610, critRating = 1.210,
+                hasteRating = 1.380, arpRating = 1.299, expertiseRating = 2.400, dps = 3.997,
+            },
+        },
+    },
+    PRIEST = {
+        [1] = { -- 戒律
+            HEAL = {
+                int = 1.644, spi = 0.337, sp = 2.000, heal = 2.000, mp5 = 0.500,
+                spellCritRating = 0.900, spellHasteRating = 1.200,
+            },
+        },
+        [2] = { -- 神圣
+            HEAL = {
+                int = 1.644, spi = 0.337, sp = 2.000, heal = 2.000, mp5 = 0.500,
+                spellCritRating = 0.900, spellHasteRating = 1.200,
+            },
+        },
+        [3] = { -- 暗影
+            DPS = {
+                int = 0.212, spi = 0.565, sp = 1.000, spellHitRating = 0.636,
+                spellCritRating = 0.684, spellHasteRating = 0.425,
+            },
+        },
+    },
+    DEATHKNIGHT = {
+        [1] = { -- 鲜血
+            TANK = {
+                str = 0.830, agi = 0.600, sta = 1.400, ap = 0.060, hitRating = 0.670, critRating = 0.280,
+                hasteRating = 0.210, arpRating = 0.190, expertiseRating = 0.670, armor = 0.050,
+                defense = 1.500, dodge = 0.700, parry = 0.580, dps = 3.100,
+            },
+            DPS = {
+                str = 2.900, agi = 0.948, ap = 1.000, hitRating = 2.807, critRating = 2.157,
+                hasteRating = 2.084, arpRating = 2.301, expertiseRating = 2.915, armor = 0.028, dps = 9.869,
+            },
+        },
+        [2] = { -- 冰霜
+            DPS = {
+                str = 2.797, agi = 1.267, ap = 1.000, hitRating = 2.051, critRating = 1.470,
+                hasteRating = 1.460, arpRating = 2.061, expertiseRating = 1.107, armor = 0.030, dps = 6.574,
+            },
+        },
+        [3] = { -- 邪恶
+            DPS = {
+                str = 2.890, agi = 0.745, ap = 1.000, hitRating = 1.874, critRating = 1.662,
+                hasteRating = 2.000, arpRating = 0.853, expertiseRating = 1.273, armor = 0.010, dps = 3.181,
+            },
+        },
+    },
+    SHAMAN = {
+        [1] = { -- 元素
+            DPS = {
+                int = 0.990, sp = 1.000, mp5 = 0.987, spellHitRating = 0.896,
+                spellCritRating = 0.745, spellHasteRating = 0.868,
+            },
+        },
+        [2] = { -- 增强
+            DPS = {
+                str = 1.100, agi = 1.613, int = 1.535, sp = 1.111, ap = 1.000, hitRating = 1.496,
+                critRating = 1.295, hasteRating = 0.613, arpRating = 0.990, expertiseRating = 2.290, dps = 7.372,
+            },
+        },
+        [3] = { -- 恢复
+            HEAL = {
+                int = 1.644, spi = 0.337, sp = 2.000, heal = 2.000, mp5 = 0.500,
+                spellCritRating = 1.610, spellHasteRating = 2.200,
+            },
+        },
+    },
+    MAGE = {
+        [1] = { -- 奥术
+            DPS = {
+                int = 0.132, spi = 0.294, sp = 1.000, spellHitRating = 0.907,
+                spellCritRating = 0.442, spellHasteRating = 0.888,
+            },
+        },
+        [2] = { -- 火焰
+            DPS = {
+                int = 0.132, spi = 0.294, sp = 1.000, spellHitRating = 0.907,
+                spellCritRating = 0.442, spellHasteRating = 0.888,
+            },
+        },
+        [3] = { -- 冰霜
+            DPS = {
+                int = 0.132, spi = 0.294, sp = 1.000, spellHitRating = 0.907,
+                spellCritRating = 0.442, spellHasteRating = 0.888,
+            },
+        },
+    },
+    WARLOCK = {
+        [1] = { -- 痛苦
+            DPS = {
+                sta = 0.010, int = 0.331, spi = 0.549, sp = 1.000, spellHitRating = 0.930,
+                spellCritRating = 0.583, spellHasteRating = 1.047,
+            },
+        },
+        [2] = { -- 恶魔学识
+            DPS = {
+                sta = 0.010, int = 0.331, spi = 0.549, sp = 1.000, spellHitRating = 0.930,
+                spellCritRating = 0.583, spellHasteRating = 1.047,
+            },
+        },
+        [3] = { -- 毁灭
+            DPS = {
+                int = 0.280, spi = 0.650, sp = 1.000, spellHitRating = 1.280,
+                spellCritRating = 0.570, spellHasteRating = 0.510,
+            },
+        },
+    },
+    DRUID = {
+        [1] = { -- 平衡
+            DPS = {
+                int = 0.530, spi = 0.337, sp = 1.000, spellHitRating = 1.860,
+                spellCritRating = 1.270, spellHasteRating = 0.611,
+            },
+        },
+        [2] = { -- 野性：猫输出 / 熊坦克
+            DPS = {
+                str = 2.379, agi = 2.522, ap = 1.000, hitRating = 2.083, critRating = 2.037,
+                hasteRating = 1.767, arpRating = 2.980, expertiseRating = 2.361, dps = 16.800,
+            },
+            TANK = {
+                sta = 2.637, agi = 1.196, ap = 1.000, critRating = 0.388, hasteRating = 0.901,
+                arpRating = 0.863, expertiseRating = 2.505, armor = 1.201, parry = 0.842,
+                dodge = 0.842, defense = -1.000, dps = 16.516,
+            },
+        },
+        [3] = { -- 恢复
+            HEAL = {
+                int = 1.644, spi = 0.337, sp = 2.000, heal = 2.000, spellCritRating = 0.803,
+                spellHasteRating = 1.111,
+            },
+        },
+    },
+}
+
+local TANK_EP = {
+    sta = 1.00, defense = 2.00, dodge = 0.80, parry = 0.80,
+    expertiseRating = 1.10, hitRating = 1.10, agi = 0.40, str = 0.35,
+    block = 0.50, hasteRating = 0.25, blockValue = 0.20, armor = 0.04,
+    ap = 0.10, critRating = 0.15,
+}
+
+local HEAL_EP = {
+    sp = 1.00, heal = 1.00, spi = 0.90, spellHasteRating = 0.75,
+    int = 0.70, mp5 = 0.50, spellCritRating = 0.45, sta = 0.08,
+}
+
+local PAWN_TO_EP = {
+    Strength = "str", Agility = "agi", Intellect = "int", Spirit = "spi", Stamina = "sta",
+    Ap = "ap", RAP = "rap", Rap = "rap", SpellDamage = "sp", SpellPower = "sp",
+    Healing = "heal", SpellHealing = "heal",
+    HitRating = "hitRating", CritRating = "critRating", HasteRating = "hasteRating",
+    ExpertiseRating = "expertiseRating", ArmorPenetration = "arpRating",
+    Armor = "armor", Mp5 = "mp5", MP5 = "mp5",
+    DodgeRating = "dodge", ParryRating = "parry", DefenseRating = "defense",
+    BlockRating = "block", BlockValue = "blockValue",
+    SpellHitRating = "spellHitRating", SpellCritRating = "spellCritRating",
+    SpellHasteRating = "spellHasteRating",
+    Dps = "dps", DPS = "dps",
+}
+
+local PAWN_CLASS_STAT = {
+    WARRIOR = { HitRating = "hitRating", CritRating = "critRating", HasteRating = "hasteRating" },
+    PALADIN = { HitRating = "hitRating", CritRating = "critRating", HasteRating = "hasteRating" },
+    DEATHKNIGHT = { HitRating = "hitRating", CritRating = "critRating", HasteRating = "hasteRating" },
+    ROGUE = { HitRating = "hitRating", CritRating = "critRating", HasteRating = "hasteRating" },
+    HUNTER = { HitRating = "rangedHitRating", CritRating = "rangedCritChance", HasteRating = "rangedHasteRating" },
+    MAGE = { HitRating = "spellHitRating", CritRating = "spellCritRating", HasteRating = "spellHasteRating" },
+    WARLOCK = { HitRating = "spellHitRating", CritRating = "spellCritRating", HasteRating = "spellHasteRating" },
+    PRIEST = { HitRating = "spellHitRating", CritRating = "spellCritRating", HasteRating = "spellHasteRating" },
+    DRUID = {
+        [1] = { HitRating = "spellHitRating", CritRating = "spellCritRating", HasteRating = "spellHasteRating" },
+        [2] = { HitRating = "hitRating", CritRating = "critRating", HasteRating = "hasteRating" },
+        default = { HitRating = "hitRating", CritRating = "critRating", HasteRating = "hasteRating" },
+    },
+    SHAMAN = {
+        [1] = { HitRating = "spellHitRating", CritRating = "spellCritRating", HasteRating = "spellHasteRating" },
+        [2] = { HitRating = "hitRating", CritRating = "critRating", HasteRating = "hasteRating" },
+        default = { HitRating = "spellHitRating", CritRating = "spellCritRating", HasteRating = "spellHasteRating" },
     },
 }
 
@@ -143,41 +459,88 @@ local function SlotsForLoc(equipLoc)
     return EQUIP_SLOTS[equipLoc]
 end
 
+-- GetItemStats on Titan/Classic may use either ITEM_MOD_X or ITEM_MOD_X_SHORT.
 local STAT_MAP = {
+    ITEM_MOD_STRENGTH = "STR",
     ITEM_MOD_STRENGTH_SHORT = "STR",
+    ITEM_MOD_AGILITY = "AGI",
     ITEM_MOD_AGILITY_SHORT = "AGI",
+    ITEM_MOD_STAMINA = "STA",
     ITEM_MOD_STAMINA_SHORT = "STA",
+    ITEM_MOD_INTELLECT = "INT",
     ITEM_MOD_INTELLECT_SHORT = "INT",
+    ITEM_MOD_SPIRIT = "SPI",
     ITEM_MOD_SPIRIT_SHORT = "SPI",
+    ITEM_MOD_HIT_RATING = "HIT",
     ITEM_MOD_HIT_RATING_SHORT = "HIT",
+    ITEM_MOD_HIT_MELEE_RATING = "HIT",
+    ITEM_MOD_HIT_MELEE_RATING_SHORT = "HIT",
+    ITEM_MOD_HIT_RANGED_RATING = "HIT",
+    ITEM_MOD_HIT_RANGED_RATING_SHORT = "HIT",
+    ITEM_MOD_HIT_SPELL_RATING = "HIT_SPELL",
     ITEM_MOD_HIT_SPELL_RATING_SHORT = "HIT_SPELL",
+    ITEM_MOD_CRIT_RATING = "CRIT",
     ITEM_MOD_CRIT_RATING_SHORT = "CRIT",
+    ITEM_MOD_CRIT_MELEE_RATING = "CRIT",
+    ITEM_MOD_CRIT_MELEE_RATING_SHORT = "CRIT",
+    ITEM_MOD_CRIT_RANGED_RATING = "CRIT",
+    ITEM_MOD_CRIT_RANGED_RATING_SHORT = "CRIT",
+    ITEM_MOD_CRIT_SPELL_RATING = "CRIT",
     ITEM_MOD_CRIT_SPELL_RATING_SHORT = "CRIT",
+    ITEM_MOD_HASTE_RATING = "HASTE",
     ITEM_MOD_HASTE_RATING_SHORT = "HASTE",
+    ITEM_MOD_HASTE_MELEE_RATING = "HASTE",
+    ITEM_MOD_HASTE_MELEE_RATING_SHORT = "HASTE",
+    ITEM_MOD_HASTE_RANGED_RATING = "HASTE",
+    ITEM_MOD_HASTE_RANGED_RATING_SHORT = "HASTE",
+    ITEM_MOD_HASTE_SPELL_RATING = "HASTE",
     ITEM_MOD_HASTE_SPELL_RATING_SHORT = "HASTE",
+    ITEM_MOD_EXPERTISE_RATING = "EXPERTISE",
     ITEM_MOD_EXPERTISE_RATING_SHORT = "EXPERTISE",
+    ITEM_MOD_DEFENSE_SKILL_RATING = "DEFENSE",
     ITEM_MOD_DEFENSE_SKILL_RATING_SHORT = "DEFENSE",
+    ITEM_MOD_DODGE_RATING = "DODGE",
     ITEM_MOD_DODGE_RATING_SHORT = "DODGE",
+    ITEM_MOD_PARRY_RATING = "PARRY",
     ITEM_MOD_PARRY_RATING_SHORT = "PARRY",
+    ITEM_MOD_BLOCK_RATING = "BLOCK",
     ITEM_MOD_BLOCK_RATING_SHORT = "BLOCK",
+    ITEM_MOD_BLOCK_VALUE = "BLOCKVALUE",
     ITEM_MOD_BLOCK_VALUE_SHORT = "BLOCKVALUE",
+    ITEM_MOD_ARMOR_PENETRATION_RATING = "ARPEN",
     ITEM_MOD_ARMOR_PENETRATION_RATING_SHORT = "ARPEN",
+    ITEM_MOD_SPELL_POWER = "SP",
     ITEM_MOD_SPELL_POWER_SHORT = "SP",
+    ITEM_MOD_SPELL_DAMAGE_DONE = "SP",
     ITEM_MOD_SPELL_DAMAGE_DONE_SHORT = "SP",
+    ITEM_MOD_SPELL_HEALING_DONE = "HEAL",
     ITEM_MOD_SPELL_HEALING_DONE_SHORT = "HEAL",
+    ITEM_MOD_ATTACK_POWER = "AP",
     ITEM_MOD_ATTACK_POWER_SHORT = "AP",
+    ITEM_MOD_RANGED_ATTACK_POWER = "AP",
     ITEM_MOD_RANGED_ATTACK_POWER_SHORT = "AP",
-    ITEM_MOD_FERAL_ATTACK_POWER_SHORT = "AP",
+    ITEM_MOD_FERAL_ATTACK_POWER = "FERAL_AP",
+    ITEM_MOD_FERAL_ATTACK_POWER_SHORT = "FERAL_AP",
+    ITEM_MOD_POWER_REGEN0 = "MP5",
     ITEM_MOD_POWER_REGEN0_SHORT = "MP5",
+    ITEM_MOD_MANA_REGENERATION = "MP5",
     ITEM_MOD_MANA_REGENERATION_SHORT = "MP5",
+    ITEM_MOD_DAMAGE_PER_SECOND = "DPS",
     ITEM_MOD_DAMAGE_PER_SECOND_SHORT = "DPS",
+    ITEM_MOD_ARMOR = "ARMOR",
+    ITEM_MOD_ARMOR_SHORT = "ARMOR",
     RESISTANCE0_NAME = "ARMOR",
+    ARMOR = "ARMOR",
     EMPTY_SOCKET_RED = "SOCKET",
     EMPTY_SOCKET_YELLOW = "SOCKET",
     EMPTY_SOCKET_BLUE = "SOCKET",
     EMPTY_SOCKET_META = "SOCKET",
     EMPTY_SOCKET_PRISMATIC = "SOCKET",
     EMPTY_SOCKET_NO_COLOR = "SOCKET",
+}
+
+local WHITE_STAT = {
+    STR = true, AGI = true, STA = true, INT = true, SPI = true, ARMOR = true,
 }
 
 local function CopyWeights(src)
@@ -193,6 +556,270 @@ local function CombatRating(id)
     return GetCombatRating(id) or 0
 end
 
+local SPELL_HIT_PER_PCT = (DEFAULT_CAPS.hitSpell17 or 446) / 17
+local MELEE_HIT_PER_PCT = (DEFAULT_CAPS.hitMelee or 263) / 8
+
+-- WotLK talent IDs that grant hit. value = { spell = perRank, melee = perRank, ranged = perRank }
+local HIT_TALENT_IDS = {
+    [1005] = { spell = 1 },            -- Warlock Suppression
+    [463]  = { spell = 1 },            -- Priest Shadow Focus
+    [181]  = { melee = 1, ranged = 1 }, -- Rogue Precision
+    [1649] = { spell = 1 },            -- Shaman Elemental Precision
+    [1783] = { spell = 2 },            -- Druid Balance of Power
+    [1310] = { melee = 1, ranged = 1 }, -- Hunter Surefooted
+    [1581] = { melee = 5 },            -- Warrior Dual Wield Specialization (1 rank)
+}
+
+local HIT_TALENT_NAMES = {
+    WARLOCK = {
+        ["镇压"] = { spell = 1 }, ["鎮壓"] = { spell = 1 }, ["Suppression"] = { spell = 1 },
+    },
+    MAGE = {
+        ["精确"] = { spell = 1 }, ["精確"] = { spell = 1 }, ["Precision"] = { spell = 1 },
+    },
+    PRIEST = {
+        ["暗影集中"] = { spell = 1 }, ["暗影專注"] = { spell = 1 }, ["Shadow Focus"] = { spell = 1 },
+    },
+    DRUID = {
+        ["能量平衡"] = { spell = 2 }, ["Balance of Power"] = { spell = 2 },
+    },
+    SHAMAN = {
+        ["元素精准"] = { spell = 1 }, ["元素精準"] = { spell = 1 }, ["Elemental Precision"] = { spell = 1 },
+    },
+    PALADIN = {
+        ["开明审判"] = { spell = 2, melee = 2 }, ["開明審判"] = { spell = 2, melee = 2 },
+        ["Enlightened Judgements"] = { spell = 2, melee = 2 },
+    },
+    HUNTER = {
+        ["专注瞄准"] = { melee = 1, ranged = 1 }, ["專注瞄準"] = { melee = 1, ranged = 1 },
+        ["Focused Aim"] = { melee = 1, ranged = 1 },
+        ["稳固"] = { melee = 1, ranged = 1 }, ["穩固"] = { melee = 1, ranged = 1 },
+        ["Surefooted"] = { melee = 1, ranged = 1 },
+    },
+    ROGUE = {
+        ["精确"] = { melee = 1 }, ["精確"] = { melee = 1 }, ["Precision"] = { melee = 1 },
+    },
+    DEATHKNIGHT = {
+        ["冰冷神经"] = { melee = 1 }, ["冰冷神經"] = { melee = 1 },
+        ["Nerves of Cold Steel"] = { melee = 1 },
+        ["恶毒"] = { spell = 1 }, ["惡毒"] = { spell = 1 }, ["Virulence"] = { spell = 1 },
+    },
+    WARRIOR = {
+        ["双武器专精"] = { melee = 1 }, ["雙武器專精"] = { melee = 1 },
+        ["Dual Wield Specialization"] = { melee = 1 },
+    },
+}
+
+local talentTip
+local function TalentTip()
+    if not talentTip then
+        talentTip = CreateFrame("GameTooltip", "BGGearScoreTalentTip", UIParent, "GameTooltipTemplate")
+        talentTip:SetOwner(UIParent, "ANCHOR_NONE")
+    end
+    return talentTip
+end
+
+local function TalentTipText()
+    local tip = TalentTip()
+    local parts = {}
+    local n = tip:NumLines() or 0
+    for i = 1, n do
+        local fs = _G["BGGearScoreTalentTipTextLeft" .. i]
+        local t = fs and fs:GetText()
+        if t and t ~= "" then
+            tinsert(parts, t)
+        end
+    end
+    return table.concat(parts, " ")
+end
+
+local function SetTalentTip(tab, index, group)
+    local tip = TalentTip()
+    tip:SetOwner(UIParent, "ANCHOR_NONE")
+    tip:ClearLines()
+    if group then
+        local ok = pcall(tip.SetTalent, tip, tab, index, false, false, group)
+        if ok then return true end
+    end
+    return pcall(tip.SetTalent, tip, tab, index)
+end
+
+-- Returns spellPct, physPct, genericPct from a talent description.
+local function ParseHitFromText(text)
+    if type(text) ~= "string" or text == "" then
+        return 0, 0, 0
+    end
+    text = text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+    text = text:gsub("被.-击中.-%d+[%%％]", "")
+    text = text:gsub("被.-擊中.-%d+[%%％]", "")
+    text = text:gsub("[Cc]hance you'll be hit by spells by %d+%%", "")
+    text = text:gsub("you'll be hit by spells by %d+%%", "")
+    text = text:gsub("[Cc]hance to be hit.-%d+%%", "")
+
+    local function firstNum(...)
+        for i = 1, select("#", ...) do
+            local n = tonumber(select(i, ...))
+            if n then return n end
+        end
+        return 0
+    end
+
+    local spell = firstNum(
+        text:match("法术命中.-(%d+)[%%％]"),
+        text:match("法術命中.-(%d+)[%%％]"),
+        text:match("法术的命中.-(%d+)[%%％]"),
+        text:match("法術的命中.-(%d+)[%%％]"),
+        text:match("[Hh]it with spells by (%d+)%%"),
+        text:match("[Hh]it with all spells by (%d+)%%"),
+        text:match("[Hh]it with your spells by (%d+)%%"),
+        text:match("[Hh]it with Shadow spells by (%d+)%%"),
+        text:match("[Hh]it with Fire, Frost and Nature spells by (%d+)%%")
+    )
+    if spell > 0 then
+        return spell, 0, 0
+    end
+
+    local lower = text:lower()
+    local isPhys = text:find("武器", 1, true) or text:find("近战", 1, true) or text:find("近戰", 1, true)
+        or text:find("毒药", 1, true) or text:find("毒藥", 1, true)
+        or lower:find("weapon", 1, true) or lower:find("melee", 1, true) or lower:find("poison", 1, true)
+    if isPhys then
+        local phys = firstNum(
+            text:match("命中.-(%d+)[%%％]"),
+            text:match("[Cc]hance to hit with.-(%d+)%%"),
+            text:match("[Hh]it with.-(%d+)%%")
+        )
+        return 0, phys, 0
+    end
+
+    local generic = firstNum(
+        text:match("命中几率提高(%d+)[%%％]"),
+        text:match("命中机率提高(%d+)[%%％]"),
+        text:match("命中機率提高(%d+)[%%％]"),
+        text:match("命中率提高(%d+)[%%％]"),
+        text:match("[Ii]ncreases your chance to hit by (%d+)%%"),
+        text:match("[Cc]hance to hit by (%d+)%%"),
+        text:match("[Hh]it chance by (%d+)%%")
+    )
+    return 0, 0, generic
+end
+
+local function AddHitSpec(dst, spec, rank)
+    if not spec or not rank or rank <= 0 then return end
+    dst.spell = dst.spell + (spec.spell or 0) * rank
+    dst.melee = dst.melee + (spec.melee or 0) * rank
+    dst.ranged = dst.ranged + (spec.ranged or 0) * rank
+end
+
+local function TalentLinkID(tab, index, group)
+    if not GetTalentLink then return end
+    local link
+    if group then
+        local ok, v = pcall(GetTalentLink, tab, index, false, false, group)
+        if ok then link = v end
+    end
+    if not link then
+        local ok, v = pcall(GetTalentLink, tab, index)
+        if ok then link = v end
+    end
+    if type(link) == "string" then
+        return tonumber(link:match("talent:(%d+)"))
+    end
+end
+
+local function PctToHitRating(pct, cr, perPct)
+    if not pct or pct == 0 then return 0 end
+    if GetCombatRatingBonus then
+        local rating = CombatRating(cr)
+        local bonus = GetCombatRatingBonus(cr)
+        if rating and rating > 0 and bonus and bonus > 0 then
+            return pct * rating / bonus
+        end
+    end
+    return pct * perPct
+end
+
+local function ScanPlayerHit()
+    local meleePct, rangedPct, spellPct, talentMelee, talentRanged, talentSpell, racialPct = 0, 0, 0, 0, 0, 0, 0
+    if BG.verOver4 and (GetHitModifier or GetSpellHitModifier) then
+        if GetHitModifier then
+            meleePct = GetHitModifier() or 0
+            rangedPct = meleePct
+        end
+        if GetSpellHitModifier then
+            spellPct = GetSpellHitModifier() or 0
+        end
+        talentMelee, talentRanged, talentSpell = meleePct, rangedPct, spellPct
+    elseif GetNumTalentTabs and GetNumTalents and GetTalentInfo then
+        local class = select(2, UnitClass("player"))
+        local group = GetActiveTalentGroup and GetActiveTalentGroup() or nil
+        local names = HIT_TALENT_NAMES[class]
+        local acc = { spell = 0, melee = 0, ranged = 0 }
+        local nTabs = GetNumTalentTabs() or 3
+        for tab = 1, nTabs do
+            local nTalents = GetNumTalents(tab) or 0
+            for index = 1, nTalents do
+                local name, rank
+                local ok, n1, _, _, _, r1 = pcall(GetTalentInfo, tab, index, false, false, group)
+                if ok then
+                    name, rank = n1, r1
+                else
+                    ok, n1, _, _, _, r1 = pcall(GetTalentInfo, tab, index)
+                    if ok then
+                        name, rank = n1, r1
+                    end
+                end
+                rank = tonumber(rank) or 0
+                if rank > 0 then
+                    local parsed
+                    if SetTalentTip(tab, index, group) then
+                        local sp, ph, ge = ParseHitFromText(TalentTipText())
+                        if sp > 0 or ph > 0 or ge > 0 then
+                            acc.spell = acc.spell + sp + ge
+                            acc.melee = acc.melee + ph + ge
+                            acc.ranged = acc.ranged + ph + ge
+                            parsed = true
+                        end
+                    end
+                    if not parsed then
+                        local id = TalentLinkID(tab, index, group)
+                        local spec = (id and HIT_TALENT_IDS[id]) or (name and names and names[name])
+                        if spec then
+                            AddHitSpec(acc, spec, rank)
+                        end
+                    end
+                end
+            end
+        end
+        talentSpell, talentMelee, talentRanged = acc.spell, acc.melee, acc.ranged
+        spellPct, meleePct, rangedPct = acc.spell, acc.melee, acc.ranged
+    end
+    -- Cata+ GetHitModifier already includes Heroic Presence.
+    if not BG.verOver4 and select(2, UnitRace("player")) == "Draenei" then
+        racialPct = 1
+        meleePct = meleePct + 1
+        rangedPct = rangedPct + 1
+        spellPct = spellPct + 1
+    end
+    return {
+        meleePct = meleePct,
+        rangedPct = rangedPct,
+        spellPct = spellPct,
+        talentMeleePct = talentMelee,
+        talentRangedPct = talentRanged,
+        talentSpellPct = talentSpell,
+        racialPct = racialPct,
+        meleeRating = PctToHitRating(meleePct, CR_HIT_MELEE, MELEE_HIT_PER_PCT),
+        rangedRating = PctToHitRating(rangedPct, CR_HIT_RANGED, MELEE_HIT_PER_PCT),
+        spellRating = PctToHitRating(spellPct, CR_HIT_SPELL, SPELL_HIT_PER_PCT),
+    }
+end
+
+local function RoundHit(n)
+    if not n then return 0 end
+    return math.floor(n + 0.5)
+end
+
 local function GetClassFile()
     return select(2, UnitClass("player"))
 end
@@ -201,61 +828,334 @@ local function GetClassName()
     return UnitClass("player")
 end
 
+-- WotLK talent tab 1-3: role + damage school. specType is never picked by hand.
+-- altRoles: same tree can play another duty (Feral tank/cat, Blood DK DPS).
+local CLASS_TALENTS = {
+    WARRIOR = {
+        { role = "DPS", specType = "MELEE" },
+        { role = "DPS", specType = "MELEE" },
+        { role = "TANK", specType = "MELEE" },
+    },
+    PALADIN = {
+        { role = "HEAL", specType = "CASTER" },
+        { role = "TANK", specType = "MELEE" },
+        { role = "DPS", specType = "MELEE" },
+    },
+    HUNTER = {
+        { role = "DPS", specType = "RANGED" },
+        { role = "DPS", specType = "RANGED" },
+        { role = "DPS", specType = "RANGED" },
+    },
+    ROGUE = {
+        { role = "DPS", specType = "MELEE" },
+        { role = "DPS", specType = "MELEE" },
+        { role = "DPS", specType = "MELEE" },
+    },
+    PRIEST = {
+        { role = "HEAL", specType = "CASTER" },
+        { role = "HEAL", specType = "CASTER" },
+        { role = "DPS", specType = "CASTER" },
+    },
+    DEATHKNIGHT = {
+        { role = "TANK", specType = "MELEE", altRoles = { "DPS" } },
+        { role = "DPS", specType = "MELEE" },
+        { role = "DPS", specType = "MELEE" },
+    },
+    SHAMAN = {
+        { role = "DPS", specType = "CASTER" },
+        { role = "DPS", specType = "MELEE" },
+        { role = "HEAL", specType = "CASTER" },
+    },
+    MAGE = {
+        { role = "DPS", specType = "CASTER" },
+        { role = "DPS", specType = "CASTER" },
+        { role = "DPS", specType = "CASTER" },
+    },
+    WARLOCK = {
+        { role = "DPS", specType = "CASTER" },
+        { role = "DPS", specType = "CASTER" },
+        { role = "DPS", specType = "CASTER" },
+    },
+    DRUID = {
+        { role = "DPS", specType = "CASTER" },
+        { role = "DPS", specType = "MELEE", altRoles = { "TANK" } },
+        { role = "HEAL", specType = "CASTER" },
+    },
+}
+
+local TALENT_NAME_FALLBACK
+do
+    local loc = GetLocale and GetLocale() or "zhCN"
+    if loc == "zhTW" then
+        TALENT_NAME_FALLBACK = {
+            WARRIOR = { "武器", "狂怒", "防護" },
+            PALADIN = { "神聖", "防護", "懲戒" },
+            HUNTER = { "野獸控制", "射擊", "生存" },
+            ROGUE = { "刺殺", "戰鬥", "敏銳" },
+            PRIEST = { "戒律", "神聖", "暗影" },
+            DEATHKNIGHT = { "鮮血", "冰霜", "邪惡" },
+            SHAMAN = { "元素", "增強", "恢復" },
+            MAGE = { "奧術", "火焰", "冰霜" },
+            WARLOCK = { "痛苦", "惡魔學識", "毀滅" },
+            DRUID = { "平衡", "野性", "恢復" },
+        }
+    elseif loc == "enUS" or loc == "enGB" then
+        TALENT_NAME_FALLBACK = {
+            WARRIOR = { "Arms", "Fury", "Protection" },
+            PALADIN = { "Holy", "Protection", "Retribution" },
+            HUNTER = { "Beast Mastery", "Marksmanship", "Survival" },
+            ROGUE = { "Assassination", "Combat", "Subtlety" },
+            PRIEST = { "Discipline", "Holy", "Shadow" },
+            DEATHKNIGHT = { "Blood", "Frost", "Unholy" },
+            SHAMAN = { "Elemental", "Enhancement", "Restoration" },
+            MAGE = { "Arcane", "Fire", "Frost" },
+            WARLOCK = { "Affliction", "Demonology", "Destruction" },
+            DRUID = { "Balance", "Feral", "Restoration" },
+        }
+    else
+        TALENT_NAME_FALLBACK = {
+            WARRIOR = { "武器", "狂怒", "防护" },
+            PALADIN = { "神圣", "防护", "惩戒" },
+            HUNTER = { "野兽控制", "射击", "生存" },
+            ROGUE = { "刺杀", "战斗", "敏锐" },
+            PRIEST = { "戒律", "神圣", "暗影" },
+            DEATHKNIGHT = { "鲜血", "冰霜", "邪恶" },
+            SHAMAN = { "元素", "增强", "恢复" },
+            MAGE = { "奥术", "火焰", "冰霜" },
+            WARLOCK = { "痛苦", "恶魔学识", "毁灭" },
+            DRUID = { "平衡", "野性", "恢复" },
+        }
+    end
+end
+
+local TALENT_ICON_FALLBACK = {
+    WARRIOR = {
+        "Interface\\Icons\\Ability_Warrior_SavageBlow",
+        "Interface\\Icons\\Ability_Warrior_InnerRage",
+        "Interface\\Icons\\Ability_Warrior_DefensiveStance",
+    },
+    PALADIN = {
+        "Interface\\Icons\\Spell_Holy_HolyBolt",
+        "Interface\\Icons\\Spell_Holy_DevotionAura",
+        "Interface\\Icons\\Spell_Holy_AuraOfLight",
+    },
+    HUNTER = {
+        "Interface\\Icons\\Ability_Hunter_BeastTaming",
+        "Interface\\Icons\\Ability_Marksmanship",
+        "Interface\\Icons\\Ability_Hunter_SwiftStrike",
+    },
+    ROGUE = {
+        "Interface\\Icons\\Ability_Rogue_Eviscerate",
+        "Interface\\Icons\\Ability_BackStab",
+        "Interface\\Icons\\Ability_Stealth",
+    },
+    PRIEST = {
+        "Interface\\Icons\\Spell_Holy_WordFortitude",
+        "Interface\\Icons\\Spell_Holy_HolyBolt",
+        "Interface\\Icons\\Spell_Shadow_ShadowWordPain",
+    },
+    DEATHKNIGHT = {
+        "Interface\\Icons\\Spell_Deathknight_BloodPresence",
+        "Interface\\Icons\\Spell_Deathknight_FrostPresence",
+        "Interface\\Icons\\Spell_Deathknight_UnholyPresence",
+    },
+    SHAMAN = {
+        "Interface\\Icons\\Spell_Nature_Lightning",
+        "Interface\\Icons\\Spell_Nature_LightningShield",
+        "Interface\\Icons\\Spell_Nature_MagicImmunity",
+    },
+    MAGE = {
+        "Interface\\Icons\\Spell_Holy_MagicalSentry",
+        "Interface\\Icons\\Spell_Fire_FireBolt02",
+        "Interface\\Icons\\Spell_Frost_FrostBolt02",
+    },
+    WARLOCK = {
+        "Interface\\Icons\\Spell_Shadow_DeathCoil",
+        "Interface\\Icons\\Spell_Shadow_Metamorphosis",
+        "Interface\\Icons\\Spell_Shadow_RainOfFire",
+    },
+    DRUID = {
+        "Interface\\Icons\\Spell_Nature_StarFall",
+        "Interface\\Icons\\Ability_Racial_BearForm",
+        "Interface\\Icons\\Spell_Nature_HealingTouch",
+    },
+}
+
+local function SpecDef(class, tab)
+    class = class or GetClassFile()
+    local list = CLASS_TALENTS[class]
+    if not list then
+        return { role = "DPS", specType = "MELEE" }
+    end
+    tab = tonumber(tab) or 1
+    return list[tab] or list[1]
+end
+
+local function SpecSupportsRole(def, role)
+    if not def or not role then return false end
+    if def.role == role then return true end
+    if def.altRoles then
+        for _, r in ipairs(def.altRoles) do
+            if r == role then return true end
+        end
+    end
+    return false
+end
+
+local function ClassRoles(class)
+    class = class or GetClassFile()
+    local list = CLASS_TALENTS[class]
+    local seen, out = {}, {}
+    local function add(role)
+        if role and not seen[role] then
+            seen[role] = true
+            tinsert(out, role)
+        end
+    end
+    if not list then
+        add("TANK")
+        add("HEAL")
+        add("DPS")
+        return out
+    end
+    for _, def in ipairs(list) do
+        add(def.role)
+        if def.altRoles then
+            for _, r in ipairs(def.altRoles) do
+                add(r)
+            end
+        end
+    end
+    local order = { TANK = 1, HEAL = 2, DPS = 3 }
+    table.sort(out, function(a, b)
+        return (order[a] or 9) < (order[b] or 9)
+    end)
+    return out
+end
+
+local function RoleAllowedForClass(class, role)
+    for _, r in ipairs(ClassRoles(class)) do
+        if r == role then return true end
+    end
+    return false
+end
+
+local function DefaultTabForRole(class, role)
+    local list = CLASS_TALENTS[class or GetClassFile()]
+    if not list then return 1 end
+    for i, def in ipairs(list) do
+        if def.role == role then return i end
+    end
+    for i, def in ipairs(list) do
+        if SpecSupportsRole(def, role) then return i end
+    end
+    return 1
+end
+
+local function DetectTalentTab()
+    local spec = BiaoGe.playerInfo and BiaoGe.playerInfo[realmID]
+        and BiaoGe.playerInfo[realmID][player] and BiaoGe.playerInfo[realmID][player].talent
+    spec = tonumber(spec)
+    if spec and spec >= 1 and spec <= 3 then
+        return spec
+    end
+    local maxPoints, mainTree = -1, 1
+    if GetTalentTabInfo then
+        local group = GetActiveTalentGroup and GetActiveTalentGroup() or nil
+        for i = 1, 3 do
+            local ok, name, icon, spent, background, preview
+            if group then
+                ok, name, icon, spent, background, preview = pcall(GetTalentTabInfo, i, false, false, group)
+                if not ok then
+                    ok, name, icon, spent, background, preview = pcall(GetTalentTabInfo, i, nil, nil, group)
+                end
+            else
+                ok, name, icon, spent, background, preview = pcall(GetTalentTabInfo, i)
+            end
+            local points = tonumber(spent) or 0
+            local extra = tonumber(preview) or 0
+            if extra > points then
+                points = extra
+            end
+            if points > maxPoints then
+                maxPoints = points
+                mainTree = i
+            end
+        end
+    end
+    return mainTree
+end
+
+local function TalentTabRaw(tab)
+    if not GetTalentTabInfo then return end
+    local group = GetActiveTalentGroup and GetActiveTalentGroup() or nil
+    local ok, a, b, c, d, e
+    if group then
+        ok, a, b, c, d, e = pcall(GetTalentTabInfo, tab, false, false, group)
+        if not ok or a == nil then
+            ok, a, b, c, d, e = pcall(GetTalentTabInfo, tab, nil, nil, group)
+        end
+    end
+    if not ok or a == nil then
+        ok, a, b, c, d, e = pcall(GetTalentTabInfo, tab)
+    end
+    if not ok then return end
+    return a, b, c, d, e
+end
+
+local function IsTalentTexture(v)
+    if type(v) == "number" then
+        return v > 0
+    end
+    if type(v) == "string" and v ~= "" then
+        return v:find("[\\/]") or v:find("^Interface") or v:find("INV_")
+            or v:find("Spell_") or v:find("Ability_") or v:find("Achievement_")
+    end
+    return false
+end
+
+local function TalentTabName(class, tab)
+    class = class or GetClassFile()
+    tab = tonumber(tab) or 1
+    local a, b = TalentTabRaw(tab)
+    if type(a) == "string" and a ~= "" then
+        return a
+    end
+    if type(b) == "string" and b ~= "" and not IsTalentTexture(b) then
+        return b
+    end
+    local fb = TALENT_NAME_FALLBACK[class]
+    return (fb and fb[tab]) or (L["天赋"] .. tab)
+end
+
+local function TalentTabIcon(class, tab)
+    class = class or GetClassFile()
+    tab = tonumber(tab) or 1
+    local a, b, c, d = TalentTabRaw(tab)
+    if IsTalentTexture(b) then
+        return b
+    end
+    if IsTalentTexture(d) then
+        return d
+    end
+    if IsTalentTexture(c) then
+        return c
+    end
+    local fb = TALENT_ICON_FALLBACK[class]
+    return fb and fb[tab]
+end
+
+local function RoleLabel(role)
+    if role == "TANK" then return L["坦克"] end
+    if role == "HEAL" then return L["治疗"] end
+    return L["输出"]
+end
+
 local function GuessProfile(class, specIndex)
     class = class or GetClassFile()
-    specIndex = specIndex or (BiaoGe.playerInfo and BiaoGe.playerInfo[realmID]
-        and BiaoGe.playerInfo[realmID][player] and BiaoGe.playerInfo[realmID][player].talent)
-    local role, specType, isMT = "DPS", "MELEE", false
-    if class == "MAGE" or class == "WARLOCK" then
-        specType = "CASTER"
-    elseif class == "HUNTER" then
-        specType = "RANGED"
-    elseif class == "PRIEST" then
-        if specIndex == 3 then
-            specType = "CASTER"
-        else
-            role, specType = "HEAL", "CASTER"
-        end
-    elseif class == "PALADIN" then
-        if specIndex == 1 then
-            role, specType = "HEAL", "CASTER"
-        elseif specIndex == 2 then
-            role, specType, isMT = "TANK", "MELEE", true
-        else
-            specType = "MELEE"
-        end
-    elseif class == "WARRIOR" then
-        if specIndex == 3 then
-            role, specType, isMT = "TANK", "MELEE", true
-        else
-            specType = "MELEE"
-        end
-    elseif class == "DEATHKNIGHT" then
-        if specIndex == 1 then
-            role, specType, isMT = "TANK", "MELEE", true
-        else
-            specType = "MELEE"
-        end
-    elseif class == "SHAMAN" then
-        if specIndex == 1 then
-            specType = "CASTER"
-        elseif specIndex == 3 then
-            role, specType = "HEAL", "CASTER"
-        else
-            specType = "MELEE"
-        end
-    elseif class == "DRUID" then
-        if specIndex == 1 then
-            specType = "CASTER"
-        elseif specIndex == 3 then
-            role, specType = "HEAL", "CASTER"
-        else
-            specType = "MELEE"
-        end
-    elseif class == "ROGUE" then
-        specType = "MELEE"
-    end
-    return role, specType, isMT
+    specIndex = tonumber(specIndex) or DetectTalentTab()
+    local def = SpecDef(class, specIndex)
+    return def.role, def.specType, def.role == "TANK", specIndex
 end
 
 local function PrimaryFor(class, role, specType)
@@ -314,30 +1214,470 @@ function BG.GearScore_BiasOptions(role, specType, primary)
     return out
 end
 
+local function NormalizeProfile(db)
+    local class = GetClassFile()
+    local tab = tonumber(db.talentTab) or DetectTalentTab()
+    if tab < 1 or tab > 3 then
+        tab = 1
+    end
+    db.talentTab = tab
+    local def = SpecDef(class, tab)
+    db.specType = def.specType
+    if not RoleAllowedForClass(class, db.role) then
+        db.role = def.role
+        db.isMT = db.role == "TANK"
+    elseif not SpecSupportsRole(def, db.role) and not db.roleLocked then
+        db.role = def.role
+        db.isMT = db.role == "TANK"
+    end
+    if db.role ~= "TANK" then
+        db.isMT = false
+    elseif db.isMT == nil then
+        db.isMT = true
+    end
+    return db
+end
+
 local function GetDB()
     BiaoGe.GearScore = BiaoGe.GearScore or {}
     BiaoGe.GearScore[realmID] = BiaoGe.GearScore[realmID] or {}
     local db = BiaoGe.GearScore[realmID][player]
     if not db then
-        local role, specType, isMT = GuessProfile()
+        local tab = DetectTalentTab()
+        local role, specType, isMT = GuessProfile(nil, tab)
         local bias1, bias2 = DefaultBias(role, specType)
         db = {
             role = role,
             specType = specType,
+            talentTab = tab,
             isMT = isMT and true or false,
-            dualWieldHit = false,
+            dualWieldHit = GetClassFile() == "ROGUE",
             spellHit17 = false,
             bias1 = bias1,
             bias2 = bias2,
             userSet = false,
+            talentLocked = false,
+            roleLocked = false,
         }
         BiaoGe.GearScore[realmID][player] = db
+    end
+    if not db.talentTab then
+        db.talentTab = DetectTalentTab()
     end
     return db
 end
 
 function BG.GearScore_GetDB()
     return GetDB()
+end
+
+local function GetMainTree()
+    local gs = BiaoGe.GearScore
+    local db = gs and gs[realmID] and gs[realmID][player]
+    if db and db.talentLocked then
+        local tab = tonumber(db.talentTab)
+        if tab and tab >= 1 and tab <= 3 then
+            return tab
+        end
+    end
+    return DetectTalentTab()
+end
+
+local applyProfileChange
+local specIconButtons = {}
+
+local function PaintSpecIcon(bt, selected)
+    if not bt then return end
+    if selected then
+        bt:SetBackdropBorderColor(0, 1, 0, 1)
+        if bt.icon then
+            bt.icon:SetDesaturated(false)
+            bt.icon:SetAlpha(1)
+        end
+    else
+        bt:SetBackdropBorderColor(0.12, 0.12, 0.12, 1)
+        if bt.icon then
+            bt.icon:SetDesaturated(true)
+            bt.icon:SetAlpha(0.55)
+        end
+    end
+end
+
+local function RefreshSpecButtons()
+    local db = GetDB()
+    local class = GetClassFile()
+    local cur = tonumber(db.talentTab) or GetMainTree()
+    for _, bt in ipairs(specIconButtons) do
+        if bt.icon then
+            bt.icon:SetTexture(TalentTabIcon(class, bt.tab) or "Interface\\Icons\\INV_Misc_QuestionMark")
+        end
+        PaintSpecIcon(bt, bt.tab == cur)
+    end
+    if BG.GearScorePrefButton then
+        local on = BG.GearPrefMainFrame and BG.GearPrefMainFrame:IsShown()
+        BG.GearScorePrefButton:SetBackdropBorderColor(on and 1 or 0.12, on and 0.82 or 0.12, on and 0 or 0.12, 1)
+    end
+end
+BG.GearScore_RefreshSpecBar = RefreshSpecButtons
+
+local function CreateSpecIconButton(parent, tab, size)
+    local bt = CreateFrame("Button", nil, parent, "BackdropTemplate")
+    bt:SetSize(size, size)
+    bt:SetBackdrop({
+        bgFile = "Interface/ChatFrame/ChatFrameBackground",
+        edgeFile = "Interface/ChatFrame/ChatFrameBackground",
+        edgeSize = 1,
+    })
+    bt:SetBackdropColor(0, 0, 0, 0.7)
+    bt:SetBackdropBorderColor(0.12, 0.12, 0.12, 1)
+    local icon = bt:CreateTexture(nil, "ARTWORK")
+    icon:SetPoint("TOPLEFT", 1, -1)
+    icon:SetPoint("BOTTOMRIGHT", -1, 1)
+    icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    icon:SetTexture(TalentTabIcon(GetClassFile(), tab) or "Interface\\Icons\\INV_Misc_QuestionMark")
+    bt.icon = icon
+    bt.tab = tab
+    local hl = bt:CreateTexture(nil, "HIGHLIGHT")
+    hl:SetPoint("TOPLEFT", 1, -1)
+    hl:SetPoint("BOTTOMRIGHT", -1, 1)
+    hl:SetColorTexture(1, 1, 1, 0.18)
+    bt:SetScript("OnEnter", function(self)
+        local class = GetClassFile()
+        local name = TalentTabName(class, tab)
+        local def = SpecDef(class, tab)
+        GameTooltip:SetOwner(self, "ANCHOR_TOPLEFT", 0, 0)
+        GameTooltip:ClearLines()
+        GameTooltip:AddLine(name, 1, 1, 1)
+        GameTooltip:AddLine(RoleLabel(def.role), 1, 0.82, 0)
+        GameTooltip:AddLine(L["点击后按该天赋计算升级分。"], 0.6, 0.6, 0.6, true)
+        GameTooltip:Show()
+    end)
+    bt:SetScript("OnLeave", GameTooltip_Hide)
+    bt:SetScript("OnClick", function()
+        BG.GearScore_SetTalentTab(tab)
+    end)
+    tinsert(specIconButtons, bt)
+    return bt
+end
+
+function BG.GearScore_SetTalentTab(tab, silent)
+    tab = tonumber(tab)
+    if not tab or tab < 1 or tab > 3 then
+        return
+    end
+    local db = GetDB()
+    local class = GetClassFile()
+    db.talentTab = tab
+    db.talentLocked = true
+    db.userSet = true
+    db.roleLocked = false
+    local def = SpecDef(class, tab)
+    db.specType = def.specType
+    db.role = def.role
+    db.isMT = def.role == "TANK"
+    if applyProfileChange then
+        applyProfileChange(true, silent)
+    else
+        NormalizeProfile(db)
+        RefreshSpecButtons()
+        if not silent then
+            BG.GearScore_OnSettingChanged()
+            BG.PlaySound(1)
+        end
+    end
+end
+
+function BG.GearScore_SpecBarUI()
+    if BG.GearScoreSpecBar then
+        RefreshSpecButtons()
+        return
+    end
+    -- 表格页底部按钮行：清空表格与通报按钮之间、底部模块页签正上方
+    local parent = BG.FBMainFrame
+    if not parent then
+        return
+    end
+
+    local ICON, GAP, PREF_GAP = 26, 3, 8
+    local barW = ICON * 4 + GAP * 2 + PREF_GAP
+    local bar = CreateFrame("Frame", nil, parent)
+    bar:SetSize(barW, 28)
+    -- 与底部「表格」tab 左对齐（tab 锚在 MainFrame BOTTOM -185），y 与清空/通报按钮同一行
+    bar:SetPoint("BOTTOMLEFT", BG.MainFrame, "BOTTOM", -185, 38)
+    bar:SetFrameLevel((parent.GetFrameLevel and parent:GetFrameLevel() or 1) + 5)
+    BG.GearScoreSpecBar = bar
+
+    for tab = 1, 3 do
+        local bt = CreateSpecIconButton(bar, tab, ICON)
+        bt:SetPoint("LEFT", (tab - 1) * (ICON + GAP), 0)
+    end
+
+    local pref = CreateFrame("Button", nil, bar, "BackdropTemplate")
+    pref:SetSize(ICON, ICON)
+    pref:SetPoint("LEFT", 3 * ICON + 2 * GAP + PREF_GAP, 0)
+    pref:SetBackdrop({
+        bgFile = "Interface/ChatFrame/ChatFrameBackground",
+        edgeFile = "Interface/ChatFrame/ChatFrameBackground",
+        edgeSize = 1,
+    })
+    pref:SetBackdropColor(0, 0, 0, 0.7)
+    pref:SetBackdropBorderColor(0.12, 0.12, 0.12, 1)
+    local picon = pref:CreateTexture(nil, "ARTWORK")
+    picon:SetPoint("TOPLEFT", 1, -1)
+    picon:SetPoint("BOTTOMRIGHT", -1, 1)
+    picon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    picon:SetTexture("Interface\\Icons\\Trade_Engineering")
+    pref.icon = picon
+    local phl = pref:CreateTexture(nil, "HIGHLIGHT")
+    phl:SetPoint("TOPLEFT", 1, -1)
+    phl:SetPoint("BOTTOMRIGHT", -1, 1)
+    phl:SetColorTexture(1, 1, 1, 0.18)
+    pref:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOPLEFT", 0, 0)
+        GameTooltip:ClearLines()
+        GameTooltip:AddLine(L["装备偏好"], 1, 1, 1)
+        GameTooltip:AddLine(L["打开装备偏好，调整属性价值和命中门槛。"], 1, 0.82, 0, true)
+        GameTooltip:Show()
+    end)
+    pref:SetScript("OnLeave", GameTooltip_Hide)
+    pref:SetScript("OnClick", function()
+        if BG.ClickTabButton and BG.GearPrefMainFrameTabNum then
+            BG.ClickTabButton(BG.GearPrefMainFrameTabNum)
+        end
+        BG.PlaySound(1)
+        RefreshSpecButtons()
+    end)
+    BG.GearScorePrefButton = pref
+
+    if BG.GearPrefMainFrame then
+        BG.GearPrefMainFrame:HookScript("OnShow", RefreshSpecButtons)
+        BG.GearPrefMainFrame:HookScript("OnHide", RefreshSpecButtons)
+    end
+    RefreshSpecButtons()
+end
+
+local function FormatWeight(n)
+    n = tonumber(n)
+    if not n then return "0" end
+    if math.abs(n - math.floor(n + 0.00001)) < 0.00001 then
+        return tostring(math.floor(n + 0.00001))
+    end
+    local s = string.format("%.4f", n):gsub("0+$", ""):gsub("%.$", "")
+    return s
+end
+
+local function EPLabel(key)
+    local labels = {
+        str = L["力量"],
+        agi = L["敏捷"],
+        sta = L["耐力"],
+        int = L["智力"],
+        spi = L["精神"],
+        ap = L["攻强"],
+        rap = L["远程攻强"],
+        sp = L["法伤"],
+        heal = L["治疗强度"],
+        mp5 = L["每5秒回蓝"],
+        armor = L["护甲"],
+        dps = L["武器DPS"],
+        hitRating = L["物理命中等级"],
+        critRating = L["物理暴击等级"],
+        hasteRating = L["物理急速等级"],
+        expertiseRating = L["精准等级"],
+        arpRating = L["破甲等级"],
+        spellHitRating = L["法术命中等级"],
+        spellCritRating = L["法术暴击等级"],
+        spellHasteRating = L["法术急速等级"],
+        rangedHitRating = L["远程命中等级"],
+        rangedCritChance = L["远程暴击"],
+        rangedHasteRating = L["远程急速等级"],
+        dodge = L["躲闪"],
+        parry = L["招架"],
+        block = L["格挡"],
+        blockValue = L["格挡值"],
+        defense = L["防御"],
+    }
+    return labels[key] or key
+end
+
+local function GetWeightProfileKey(db)
+    db = db or GetDB()
+    local tab = tonumber(db.talentTab) or GetMainTree() or 1
+    return (db.role or "DPS") .. ":" .. tostring(tab)
+end
+
+local function LookupSpecEP(class, tab, role)
+    local classW = SPEC_EP[class]
+    if not classW then
+        return nil
+    end
+    tab = tonumber(tab) or 1
+    role = role or "DPS"
+    local tabW = classW[tab]
+    if tabW then
+        local w = tabW[role] or tabW.DPS or tabW.TANK or tabW.HEAL
+        if w then
+            return w
+        end
+    end
+    for i = 1, 3 do
+        local tw = classW[i]
+        if tw and tw[role] then
+            return tw[role]
+        end
+    end
+end
+
+-- Keep sim/MYGear EP as-is. Green ratings (hit/crit/haste/arp/ap/sp) often
+-- outvalue white primaries; do not softmax them down. Weapon DPS is still
+-- omitted so a slightly faster weapon does not bury a cheaper piece.
+local function ValueEP(src)
+    if not src then
+        return nil
+    end
+    local t = CopyWeights(src)
+    t.dps = nil
+    if t.defense and t.defense < 0 then
+        t.defense = 0
+    end
+    return t
+end
+
+local function GetDefaultEP(db)
+    db = db or GetDB()
+    local class = GetClassFile()
+    local tab = tonumber(db.talentTab) or GetMainTree() or 1
+    local role = db.role or "DPS"
+    local w = LookupSpecEP(class, tab, role)
+    if w then
+        return ValueEP(w)
+    end
+    if role == "TANK" then
+        return CopyWeights(TANK_EP)
+    end
+    if role == "HEAL" then
+        return CopyWeights(HEAL_EP)
+    end
+end
+
+local function GetEffectiveEPWeights(db)
+    db = db or GetDB()
+    local defaults = GetDefaultEP(db)
+    if not defaults then
+        return nil, false
+    end
+    local key = GetWeightProfileKey(db)
+    local custom = db.epWeights and db.epWeights[key]
+    if type(custom) ~= "table" then
+        return defaults, false
+    end
+    local merged = CopyWeights(defaults)
+    for k, v in pairs(custom) do
+        if tonumber(v) then
+            merged[k] = tonumber(v)
+        end
+    end
+    return merged, true
+end
+
+local function SetEPWeight(statKey, value)
+    local db = GetDB()
+    local pk = GetWeightProfileKey(db)
+    db.epWeights = db.epWeights or {}
+    db.epWeights[pk] = db.epWeights[pk] or {}
+    db.epWeights[pk][statKey] = value
+    db.userSet = true
+end
+
+local function ResetEPWeight(statKey)
+    local db = GetDB()
+    local pk = GetWeightProfileKey(db)
+    if db.epWeights and db.epWeights[pk] then
+        db.epWeights[pk][statKey] = nil
+        if not next(db.epWeights[pk]) then
+            db.epWeights[pk] = nil
+        end
+    end
+    db.userSet = true
+end
+
+local function ResetAllEPWeights()
+    local db = GetDB()
+    local pk = GetWeightProfileKey(db)
+    if db.epWeights then
+        db.epWeights[pk] = nil
+    end
+    db.userSet = true
+end
+
+local function PawnSubMap(class, spec, db)
+    db = db or GetDB()
+    if db.role == "HEAL" or db.specType == "CASTER" then
+        return {
+            HitRating = "spellHitRating",
+            CritRating = "spellCritRating",
+            HasteRating = "spellHasteRating",
+        }
+    end
+    if db.specType == "RANGED" then
+        return {
+            HitRating = "rangedHitRating",
+            CritRating = "rangedCritChance",
+            HasteRating = "rangedHasteRating",
+        }
+    end
+    local classMap = PAWN_CLASS_STAT[class]
+    if type(classMap) ~= "table" then
+        return nil
+    end
+    if classMap[spec] then
+        return classMap[spec]
+    end
+    if classMap.default then
+        return classMap.default
+    end
+    if classMap.HitRating then
+        return classMap
+    end
+end
+
+local function ParsePawnEP(rawText, db)
+    db = db or GetDB()
+    if type(rawText) ~= "string" or rawText == "" then
+        return {}
+    end
+    local parsedClass = string.match(rawText, "Class=([%w%s]+)")
+    local classMap = {
+        MAGE = "MAGE", WARLOCK = "WARLOCK", PRIEST = "PRIEST", DRUID = "DRUID",
+        SHAMAN = "SHAMAN", HUNTER = "HUNTER", ROGUE = "ROGUE", WARRIOR = "WARRIOR",
+        PALADIN = "PALADIN", DEATHKNIGHT = "DEATHKNIGHT", MONK = "MONK",
+    }
+    if parsedClass then
+        parsedClass = string.upper(parsedClass)
+        parsedClass = string.gsub(parsedClass, "%s+", "")
+        if parsedClass == "DEATHKNIGHT" or parsedClass == "DEATH KNIGHT" then
+            parsedClass = "DEATHKNIGHT"
+        end
+    end
+    local matchedClass = (parsedClass and (classMap[parsedClass] or parsedClass)) or GetClassFile()
+    local spec = tonumber(db.talentTab) or GetMainTree()
+    local specSubMap = PawnSubMap(matchedClass, spec, db)
+    local imported = {}
+    for k, v in string.gmatch(rawText, "([%w_]+)%s*=%s*([%d%.%-]+)") do
+        if k ~= "Class" and k ~= "v1" then
+            local epKey
+            if specSubMap and specSubMap[k] then
+                epKey = specSubMap[k]
+            elseif PAWN_TO_EP[k] then
+                epKey = PAWN_TO_EP[k]
+            end
+            local num = tonumber(v)
+            if epKey and num then
+                imported[epKey] = num
+            end
+        end
+    end
+    return imported
 end
 
 local function GetCaps(db)
@@ -356,6 +1696,7 @@ local function GetCaps(db)
         hitSpell = hitSpell,
         expertise = tonumber(c.expertise) or DEFAULT_CAPS.expertise,
         defense = tonumber(c.defense) or DEFAULT_CAPS.defense,
+        arp = tonumber(c.arp) or DEFAULT_CAPS.arp,
     }
 end
 
@@ -365,6 +1706,7 @@ function BG.GearScore_DefaultCaps()
         hitSpell = DEFAULT_CAPS.hitSpell,
         expertise = DEFAULT_CAPS.expertise,
         defense = DEFAULT_CAPS.defense,
+        arp = DEFAULT_CAPS.arp,
     }
 end
 
@@ -385,34 +1727,59 @@ local function BuildWeights(db)
         base = WEIGHTS.MELEE
     end
     local w = CopyWeights(base)
-    for _, k in ipairs({ "STR", "AGI", "INT" }) do
-        if k ~= primary then
-            if w[k] and w[k] >= 0.5 then
-                w[k] = 0.05
+    local ep = GetEffectiveEPWeights(db)
+    if ep then
+        for _, epKey in ipairs(EP_APPLY_ORDER) do
+            local scoreKey = EP_TO_SCORE[epKey]
+            if scoreKey and ep[epKey] ~= nil then
+                w[scoreKey] = ep[epKey]
             end
         end
-    end
-    if db.role == "HEAL" then
-        w.SPI = math.max(w.SPI or 0, 0.90)
-    end
-    if db.role == "TANK" and not db.isMT then
-        w.DEFENSE = 0.15
-    end
-    local function bump(key, mul)
-        if key and w[key] then
-            w[key] = w[key] * mul
+        if db.role == "HEAL" or db.specType == "CASTER" then
+            local hitW = ep.spellHitRating or ep.hitRating
+            if hitW then
+                w.HIT = hitW
+                w.HIT_SPELL = hitW
+            end
         end
-    end
-    bump(db.bias1, BIAS1)
-    if db.bias2 and db.bias2 ~= "NONE" and db.bias2 ~= db.bias1 then
-        bump(db.bias2, BIAS2)
+        if db.role == "TANK" and not db.isMT then
+            w.DEFENSE = math.min(w.DEFENSE or 0, 0.15)
+        end
+    else
+        for _, k in ipairs({ "STR", "AGI", "INT" }) do
+            if k ~= primary then
+                if w[k] and w[k] >= 0.5 then
+                    w[k] = 0.05
+                end
+            end
+        end
+        if db.role == "HEAL" then
+            w.SPI = math.max(w.SPI or 0, 0.90)
+        end
+        if db.role == "TANK" and not db.isMT then
+            w.DEFENSE = 0.15
+        end
+        local function bump(key, mul)
+            if key and w[key] then
+                w[key] = w[key] * mul
+            end
+        end
+        bump(db.bias1, BIAS1)
+        if db.bias2 and db.bias2 ~= "NONE" and db.bias2 ~= db.bias1 then
+            bump(db.bias2, BIAS2)
+        end
     end
     w._primary = primary
     return w
 end
 
 local playerSnap = {
-    ratings = { hitMelee = 0, hitRanged = 0, hitSpell = 0, expertise = 0, defense = 0 },
+    ratings = { hitMelee = 0, hitRanged = 0, hitSpell = 0, expertise = 0, defense = 0, arp = 0 },
+    talentHit = {
+        meleePct = 0, rangedPct = 0, spellPct = 0,
+        talentMeleePct = 0, talentRangedPct = 0, talentSpellPct = 0,
+        racialPct = 0, meleeRating = 0, rangedRating = 0, spellRating = 0,
+    },
     equipped = {}, -- slot -> { itemID, link, stats, ilvl, equipLoc }
 }
 
@@ -428,18 +1795,21 @@ end
 local function MapStatKey(raw)
     if not raw then return end
     if STAT_MAP[raw] then return STAT_MAP[raw] end
-    local token = raw
-    if _G[raw] and STAT_MAP[raw] then
-        return STAT_MAP[raw]
+    if type(raw) == "string" then
+        local noShort = raw:gsub("_SHORT$", "")
+        if noShort ~= raw and STAT_MAP[noShort] then
+            return STAT_MAP[noShort]
+        end
+        if raw:find("SOCKET_BONUS", 1, true) then
+            return nil
+        end
     end
-    -- localized short as key
     for tokenName, key in pairs(STAT_MAP) do
         local loc = _G[tokenName]
         if loc and loc == raw then
             return key
         end
     end
-    return nil
 end
 
 local function ParseGetItemStats(link)
@@ -456,54 +1826,201 @@ local function ParseGetItemStats(link)
     return stats
 end
 
-local function ShortPat(globalName)
-    local s = _G[globalName]
-    if type(s) ~= "string" or s == "" then return end
-    return s
+local tooltipMatchers
+local tooltipSkipSocketBonus
+local tooltipSkipOnUse
+
+local function EscapePat(s)
+    return (s:gsub("([%(%)%.%+%-%*%?%[%^%$%%])", "%%%1"))
 end
 
-local tooltipStatNames
-local function BuildTooltipNames()
-    tooltipStatNames = {}
-    local pairs_ = {
-        { "STR", "ITEM_MOD_STRENGTH_SHORT" },
-        { "AGI", "ITEM_MOD_AGILITY_SHORT" },
-        { "STA", "ITEM_MOD_STAMINA_SHORT" },
-        { "INT", "ITEM_MOD_INTELLECT_SHORT" },
-        { "SPI", "ITEM_MOD_SPIRIT_SHORT" },
-        { "HIT", "ITEM_MOD_HIT_RATING_SHORT" },
-        { "HIT_SPELL", "ITEM_MOD_HIT_SPELL_RATING_SHORT" },
-        { "CRIT", "ITEM_MOD_CRIT_RATING_SHORT" },
-        { "HASTE", "ITEM_MOD_HASTE_RATING_SHORT" },
-        { "EXPERTISE", "ITEM_MOD_EXPERTISE_RATING_SHORT" },
-        { "DEFENSE", "ITEM_MOD_DEFENSE_SKILL_RATING_SHORT" },
-        { "DODGE", "ITEM_MOD_DODGE_RATING_SHORT" },
-        { "PARRY", "ITEM_MOD_PARRY_RATING_SHORT" },
-        { "BLOCK", "ITEM_MOD_BLOCK_RATING_SHORT" },
-        { "ARPEN", "ITEM_MOD_ARMOR_PENETRATION_RATING_SHORT" },
-        { "SP", "ITEM_MOD_SPELL_POWER_SHORT" },
-        { "HEAL", "ITEM_MOD_SPELL_HEALING_DONE_SHORT" },
-        { "AP", "ITEM_MOD_ATTACK_POWER_SHORT" },
-    }
-    for _, row in ipairs(pairs_) do
-        local loc = ShortPat(row[2])
-        if loc then
-            tinsert(tooltipStatNames, { key = row[1], name = loc })
+-- Convert Blizzard ITEM_MOD_* format strings into Lua patterns.
+-- White: "%c%s 力量" → "+20 力量"
+-- Green: "使你的命中等级提高%s点。" (often prefixed by 装备：)
+local function GlobalToPattern(globalKey)
+    local str = _G[globalKey]
+    if type(str) ~= "string" or str == "" then return end
+    local hasPlus = str:find("%%c", 1, true)
+    str = str:gsub("%%c", ""):gsub("%%s", "\0"):gsub("%%d", "\0")
+    str = EscapePat(str)
+    str = str:gsub("\0", "(%%d+)")
+    str = str:gsub("^%s+", ""):gsub("%s+$", "")
+    if not str:find("%(%%d%+%)") then
+        return
+    end
+    if hasPlus then
+        str = "%+?%s*" .. str
+    end
+    return str
+end
+
+-- "%c%s" / "%d" with no stat name would match "456点护甲" as spirit/int.
+local function PatternHasStatName(pat)
+    if type(pat) ~= "string" or pat == "" then
+        return false
+    end
+    local plain = pat:gsub("%%.", ""):gsub("%b()", "")
+    plain = plain:gsub("[%^%$%*%+%-%?%[%]%.]", "")
+    plain = plain:gsub("%s+", "")
+    return plain ~= ""
+end
+
+local function AddMatcher(list, key, pat)
+    if type(pat) == "string" and pat ~= "" and PatternHasStatName(pat) then
+        tinsert(list, { key = key, pat = pat })
+    end
+end
+
+-- "456点护甲" / "+456 Armor". Do not treat 护甲穿透 as armor.
+local function LineArmorValue(text)
+    if type(text) ~= "string" or text == "" then
+        return
+    end
+    if text:find("穿透", 1, true) or text:find("破甲", 1, true)
+        or text:find("Penetration", 1, true) then
+        return
+    end
+    local n = text:match("^%+?%s*(%d+)%s*点%s*护甲")
+        or text:match("^%+?%s*(%d+)%s*点%s*護甲")
+        or text:match("^%+?%s*(%d+)%s+Armor%s*$")
+        or text:match("^%+?%s*(%d+)%s+Armor%s")
+    if n then
+        return n
+    end
+    local armorWord = _G.ARMOR
+    if type(armorWord) == "string" and armorWord ~= "" and not armorWord:find("%%", 1, true) then
+        n = text:match("^%+?%s*(%d+)%s*点?%s*" .. EscapePat(armorWord) .. "%s*$")
+        if n then
+            return n
         end
     end
-    -- extra Chinese/English stems in case globals differ on Titan
-    tinsert(tooltipStatNames, { key = "SP", name = L["法强"] })
-    tinsert(tooltipStatNames, { key = "ARPEN", name = L["破甲"] })
-    tinsert(tooltipStatNames, { key = "HASTE", name = L["急速"] })
-    tinsert(tooltipStatNames, { key = "CRIT", name = L["暴击"] })
-    tinsert(tooltipStatNames, { key = "HIT", name = L["命中"] })
-    tinsert(tooltipStatNames, { key = "EXPERTISE", name = L["精准"] })
-    tinsert(tooltipStatNames, { key = "DEFENSE", name = L["防御"] })
-    tinsert(tooltipStatNames, { key = "MP5", name = "每5秒" })
+    local tmpl = _G.ARMOR_TEMPLATE
+    if type(tmpl) == "string" and tmpl:find("%%d", 1, true) then
+        local pat = "^%+?%s*" .. tmpl:gsub("%%d", "(%%d+)"):gsub("%%s", ".-")
+        n = text:match(pat)
+        if n then
+            return n
+        end
+    end
+end
+
+local STAT_GLOBAL_ROWS = {
+    { "STR", "ITEM_MOD_STRENGTH" },
+    { "AGI", "ITEM_MOD_AGILITY" },
+    { "STA", "ITEM_MOD_STAMINA" },
+    { "INT", "ITEM_MOD_INTELLECT" },
+    { "SPI", "ITEM_MOD_SPIRIT" },
+    { "HIT", "ITEM_MOD_HIT_RATING" },
+    { "HIT_SPELL", "ITEM_MOD_HIT_SPELL_RATING" },
+    { "CRIT", "ITEM_MOD_CRIT_RATING" },
+    { "HASTE", "ITEM_MOD_HASTE_RATING" },
+    { "EXPERTISE", "ITEM_MOD_EXPERTISE_RATING" },
+    { "DEFENSE", "ITEM_MOD_DEFENSE_SKILL_RATING" },
+    { "DODGE", "ITEM_MOD_DODGE_RATING" },
+    { "PARRY", "ITEM_MOD_PARRY_RATING" },
+    { "BLOCK", "ITEM_MOD_BLOCK_RATING" },
+    { "BLOCKVALUE", "ITEM_MOD_BLOCK_VALUE" },
+    { "ARPEN", "ITEM_MOD_ARMOR_PENETRATION_RATING" },
+    { "SP", "ITEM_MOD_SPELL_POWER" },
+    { "SP", "ITEM_MOD_SPELL_DAMAGE_DONE" },
+    { "HEAL", "ITEM_MOD_SPELL_HEALING_DONE" },
+    { "AP", "ITEM_MOD_ATTACK_POWER" },
+    { "AP", "ITEM_MOD_RANGED_ATTACK_POWER" },
+    { "FERAL_AP", "ITEM_MOD_FERAL_ATTACK_POWER" },
+    { "MP5", "ITEM_MOD_MANA_REGENERATION" },
+    { "MP5", "ITEM_MOD_POWER_REGEN0" },
+}
+
+-- Longer stems first so 护甲穿透 is not eaten by 护甲, 远程攻击强度 not by 攻击强度.
+local EXTRA_STEMS = {
+    { "ARPEN", { "护甲穿透等级", "护甲穿透", "破甲等级", "破甲", "Armor Penetration" } },
+    { "HIT_SPELL", { "法术命中等级", "法术命中", "Spell Hit" } },
+    { "AP", { "远程攻击强度", "攻击强度", "Attack Power" } },
+    { "SP", { "法术强度", "法术伤害", "Spell Power" } },
+    { "HEAL", { "治疗效果", "治疗强度" } },
+    { "HIT", { "命中等级", "命中" } },
+    { "CRIT", { "暴击等级", "爆击等级", "暴击", "爆击", "Crit Rating", "Critical Strike" } },
+    { "HASTE", { "急速等级", "急速", "Haste Rating" } },
+    { "EXPERTISE", { "精准等级", "精准", "Expertise" } },
+    { "DEFENSE", { "防御等级", "Defense Rating" } },
+    { "DODGE", { "躲闪等级", "闪躲等级", "Dodge Rating" } },
+    { "PARRY", { "招架等级", "Parry Rating" } },
+    { "BLOCKVALUE", { "格挡值", "Block Value" } },
+    { "BLOCK", { "格挡等级", "Block Rating" } },
+    { "MP5", { "每5秒恢复", "每5秒回复", "mana per 5" } },
+    { "STR", { "力量", "Strength" } },
+    { "AGI", { "敏捷", "Agility" } },
+    { "STA", { "耐力", "Stamina" } },
+    { "INT", { "智力", "Intellect" } },
+    { "SPI", { "精神", "Spirit" } },
+}
+
+local function BuildTooltipMatchers()
+    tooltipMatchers = {}
+    for _, row in ipairs(STAT_GLOBAL_ROWS) do
+        AddMatcher(tooltipMatchers, row[1], GlobalToPattern(row[2]))
+        AddMatcher(tooltipMatchers, row[1], GlobalToPattern(row[2] .. "_SHORT"))
+        local shortName = _G[row[2] .. "_SHORT"]
+        if type(shortName) == "string" and shortName ~= "" then
+            local esc = EscapePat(shortName)
+            AddMatcher(tooltipMatchers, row[1], "^%+(%d+)%s*" .. esc)
+            AddMatcher(tooltipMatchers, row[1], esc .. ".-提高(%d+)")
+            AddMatcher(tooltipMatchers, row[1], "提高.-" .. esc .. ".-(%d+)")
+            AddMatcher(tooltipMatchers, row[1], "[Ii]ncreases.-" .. esc .. ".-(%d+)")
+            AddMatcher(tooltipMatchers, row[1], "[Ii]mproves.-" .. esc .. ".-(%d+)")
+        end
+    end
+    for _, row in ipairs(EXTRA_STEMS) do
+        for _, stem in ipairs(row[2]) do
+            local esc = EscapePat(stem)
+            AddMatcher(tooltipMatchers, row[1], "^%+(%d+)%s*" .. esc)
+            AddMatcher(tooltipMatchers, row[1], esc .. ".-提高(%d+)")
+            AddMatcher(tooltipMatchers, row[1], "提高.-" .. esc .. ".-(%d+)")
+        end
+    end
+    table.sort(tooltipMatchers, function(a, b)
+        return #a.pat > #b.pat
+    end)
+    local sockBonus = ITEM_SOCKET_BONUS
+    if type(sockBonus) == "string" then
+        tooltipSkipSocketBonus = sockBonus:gsub("%%s.*", "")
+    end
+    tooltipSkipOnUse = ITEM_SPELL_TRIGGER_ONUSE
+end
+
+local function TooltipLineSkipped(text)
+    if tooltipSkipOnUse and tooltipSkipOnUse ~= "" and text:find(tooltipSkipOnUse, 1, true) then
+        return true
+    end
+    if text:find("使用：", 1, true) or text:find("Use:", 1, true) then
+        return true
+    end
+    -- proc / on-hit, not static green stats
+    if text:find("有一定几率", 1, true) or text:find("有几率", 1, true)
+        or text:find("有一定幾率", 1, true) or text:find("有幾率", 1, true)
+        or text:find("a chance", 1, true) or text:find("A chance", 1, true)
+        or text:find("Chance on", 1, true) or text:find("chance on", 1, true)
+        or text:find("触发", 1, true) then
+        return true
+    end
+    if tooltipSkipSocketBonus and tooltipSkipSocketBonus ~= "" and text:find(tooltipSkipSocketBonus, 1, true) then
+        return true
+    end
+    if text:find("镶孔奖励", 1, true) or text:find("Socket Bonus", 1, true) then
+        return true
+    end
+    -- feral AP on weapons is green text; only druids should score it
+    if GetClassFile() ~= "DRUID" then
+        if text:find("猎豹", 1, true) or text:find("枭兽", 1, true) or text:find("梟獸", 1, true)
+            or text:find("Feral", 1, true) or text:find("cat form", 1, true)
+            or text:find("bear form", 1, true) then
+            return true
+        end
+    end
 end
 
 local function ParseTooltipStats(item)
-    if not tooltipStatNames then BuildTooltipNames() end
+    if not tooltipMatchers then BuildTooltipMatchers() end
     local stats = {}
     if not BG.Tooltip_SetItemByID then return stats end
     BG.Tooltip_SetItemByID(item)
@@ -512,39 +2029,57 @@ local function ParseTooltipStats(item)
         local fs = _G["BiaoGeTooltipTextLeft" .. i]
         local text = fs and fs:GetText()
         if text and text ~= "" then
-            local plus, name = text:match("^%+(%d+)%s*(.+)$")
-            if plus and name then
-                name = name:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
-                for _, row in ipairs(tooltipStatNames) do
-                    if name:find(row.name, 1, true) then
-                        AddStat(stats, row.key, plus)
-                        break
-                    end
-                end
-            else
-                local n = text:match("(%d+)")
-                if n then
-                    for _, row in ipairs(tooltipStatNames) do
-                        if text:find(row.name, 1, true) and (text:find("提高", 1, true) or text:find("improves", 1, true) or text:find("Increases", 1, true) or text:find("increases", 1, true) or text:find("Equip:", 1, true) or text:find("装备", 1, true)) then
+            text = text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+            if not TooltipLineSkipped(text) then
+                local matched
+                local armor = LineArmorValue(text)
+                if armor then
+                    AddStat(stats, "ARMOR", armor)
+                    matched = true
+                else
+                    for _, row in ipairs(tooltipMatchers) do
+                        local n = text:match(row.pat)
+                        if n then
                             AddStat(stats, row.key, n)
+                            matched = true
                             break
                         end
                     end
+                    if not matched then
+                        local plus, name = text:match("^%+(%d+)%s*(.+)$")
+                        if plus and name then
+                            local armorName = (name:find("护甲", 1, true) or name:find("護甲", 1, true)
+                                or name:find("Armor", 1, true))
+                                and not (name:find("穿透", 1, true) or name:find("破甲", 1, true)
+                                    or name:find("Penetration", 1, true))
+                            if armorName then
+                                AddStat(stats, "ARMOR", plus)
+                                matched = true
+                            else
+                                for _, row in ipairs(EXTRA_STEMS) do
+                                    for _, stem in ipairs(row[2]) do
+                                        if name:find(stem, 1, true) then
+                                            AddStat(stats, row[1], plus)
+                                            matched = true
+                                            break
+                                        end
+                                    end
+                                    if matched then break end
+                                end
+                            end
+                        end
+                    end
                 end
-            end
-            local armor = text:match("^(%d+)%s*" .. (ARMOR or "护甲"))
-            if armor then
-                AddStat(stats, "ARMOR", armor)
-            end
-            local dps = text:match("每秒伤害.-([%d%.]+)") or text:match("([%d%.]+).-[Dd]amage per second")
-            if dps then
-                AddStat(stats, "DPS", dps)
-            end
-            for _, sockKey in ipairs({ "EMPTY_SOCKET_RED", "EMPTY_SOCKET_YELLOW", "EMPTY_SOCKET_BLUE", "EMPTY_SOCKET_META", "EMPTY_SOCKET_PRISMATIC", "EMPTY_SOCKET_NO_COLOR" }) do
-                local sockText = _G[sockKey]
-                if sockText and text:find(sockText, 1, true) then
-                    AddStat(stats, "SOCKET", 1)
-                    break
+                local dps = text:match("每秒伤害.-([%d%.]+)") or text:match("([%d%.]+).-[Dd]amage per second")
+                if dps then
+                    AddStat(stats, "DPS", dps)
+                end
+                for _, sockKey in ipairs({ "EMPTY_SOCKET_RED", "EMPTY_SOCKET_YELLOW", "EMPTY_SOCKET_BLUE", "EMPTY_SOCKET_META", "EMPTY_SOCKET_PRISMATIC", "EMPTY_SOCKET_NO_COLOR" }) do
+                    local sockText = _G[sockKey]
+                    if sockText and text:find(sockText, 1, true) then
+                        AddStat(stats, "SOCKET", 1)
+                        break
+                    end
                 end
             end
         end
@@ -552,19 +2087,57 @@ local function ParseTooltipStats(item)
     return stats
 end
 
-local function MergeStats(a, b)
-    for k, v in pairs(b) do
-        AddStat(a, k, v)
-    end
-    return a
-end
-
-local function HasUsefulStats(stats)
-    for k, v in pairs(stats) do
-        if k ~= "SOCKET" and v and v ~= 0 then
-            return true
+-- Fill gaps without double-counting: keep the larger value per stat.
+local function MergeFill(dst, src)
+    for k, v in pairs(src) do
+        v = tonumber(v)
+        if v then
+            local cur = tonumber(dst[k]) or 0
+            if math.abs(v) > math.abs(cur) then
+                dst[k] = v
+            end
         end
     end
+    return dst
+end
+
+-- Tank white armor (hundreds) must not stay mapped as intellect/spirit.
+local function SanitizeTankWhiteStats(stats)
+    local tank = (tonumber(stats.DEFENSE) or 0) + (tonumber(stats.DODGE) or 0)
+        + (tonumber(stats.PARRY) or 0) + (tonumber(stats.BLOCK) or 0)
+    local armor = tonumber(stats.ARMOR) or 0
+    local spi = tonumber(stats.SPI) or 0
+    local intv = tonumber(stats.INT) or 0
+    local str = tonumber(stats.STR) or 0
+    local function dropDup(primary, amount)
+        if amount <= 0 then
+            return
+        end
+        if armor > 0 and math.abs(amount - armor) < 0.5 then
+            stats[primary] = nil
+        elseif armor == 0 and amount >= 200 then
+            stats.ARMOR = amount
+            armor = amount
+            stats[primary] = nil
+        elseif tank > 0 and amount >= 200 then
+            stats[primary] = nil
+        end
+    end
+    dropDup("SPI", spi)
+    if tank > 0 or str > 0 then
+        dropDup("INT", intv)
+    end
+    return stats
+end
+
+local function FinalizeStats(stats)
+    if stats.FERAL_AP and stats.FERAL_AP ~= 0 then
+        if GetClassFile() == "DRUID" then
+            AddStat(stats, "AP", stats.FERAL_AP)
+        end
+        stats.FERAL_AP = nil
+    end
+    return SanitizeTankWhiteStats(stats)
 end
 
 local function ParseItemStats(itemID, link)
@@ -572,16 +2145,12 @@ local function ParseItemStats(itemID, link)
     if itemStatCache[itemID] then
         return itemStatCache[itemID]
     end
+    -- GetItemStats often returns only white primaries on Titan. Always scan
+    -- the tooltip for green Equip: lines (hit/crit/haste/arp/ap/sp).
     local stats = ParseGetItemStats(link or itemID)
-    if not HasUsefulStats(stats) then
-        stats = MergeStats(stats, ParseTooltipStats(link or itemID))
-    else
-        -- fill DPS/armor/sockets if GetItemStats skipped them
-        local extra = ParseTooltipStats(link or itemID)
-        if extra.DPS and not stats.DPS then stats.DPS = extra.DPS end
-        if extra.ARMOR and not stats.ARMOR then stats.ARMOR = extra.ARMOR end
-        if extra.SOCKET and not stats.SOCKET then stats.SOCKET = extra.SOCKET end
-    end
+    local extra = ParseTooltipStats(link or itemID)
+    MergeFill(stats, extra)
+    FinalizeStats(stats)
     itemStatCache[itemID] = stats
     return stats
 end
@@ -679,6 +2248,36 @@ local function WeaponOK(class, typeID, subclassID, equipLoc, role, specType)
     return allow[subclassID] and true or false
 end
 
+local CASTER_MARK = { "INT", "SPI", "SP", "HEAL", "HIT_SPELL", "MP5" }
+local TANK_MARK = { "DEFENSE", "DODGE", "PARRY", "BLOCK", "BLOCKVALUE" }
+local PHYS_MARK = { "STR", "AGI", "AP", "EXPERTISE", "ARPEN", "DPS" }
+
+local function StatPositive(stats, keys)
+    if not stats then return false end
+    for i = 1, #keys do
+        if (tonumber(stats[keys[i]]) or 0) > 0 then
+            return true
+        end
+    end
+    return false
+end
+
+-- Rings/necks ignore armor type, so a tank ring can still look wearable to a warlock.
+local function WrongStatSchool(stats, db)
+    if not stats or not db then return false end
+    local casterish = StatPositive(stats, CASTER_MARK)
+    local tankish = StatPositive(stats, TANK_MARK)
+    local physish = StatPositive(stats, PHYS_MARK)
+    if db.role == "HEAL" or db.specType == "CASTER" then
+        return (not casterish) and (tankish or physish)
+    end
+    if db.role == "TANK" then
+        return casterish and (not tankish) and (not physish)
+    end
+    -- melee / ranged DPS: skip pure avoidance tank pieces
+    return tankish and (not physish) and (not casterish)
+end
+
 local function CappedScore(amount, current, cap, highW)
     amount = amount or 0
     if amount == 0 or not highW or highW == 0 then
@@ -692,16 +2291,26 @@ local function CappedScore(amount, current, cap, highW)
     return useful * highW + waste * highW * WASTE, useful, waste
 end
 
+local function AddPart(parts, key, amount)
+    if WHITE_STAT[key] then
+        parts.white = parts.white + amount
+    else
+        parts.green = parts.green + amount
+    end
+    parts.score = parts.score + amount
+end
+
 local function ScoreStats(stats, w, db, ilvl, notes)
     db = db or GetDB()
+    notes = notes or {}
     local caps = GetCaps(db)
     local r = playerSnap.ratings
-    local score = 0
+    local parts = { score = 0, white = 0, green = 0 }
     local hitAmt = 0
     if db.role == "HEAL" or db.specType == "CASTER" then
         hitAmt = (stats.HIT or 0) + (stats.HIT_SPELL or 0)
         local s, useful, waste = CappedScore(hitAmt, r.hitSpell, caps.hitSpell, w.HIT)
-        score = score + s
+        AddPart(parts, "HIT", s)
         if waste and waste > 0 and useful == 0 then
             tinsert(notes, "hitcap")
         elseif waste and waste > 0 then
@@ -710,7 +2319,7 @@ local function ScoreStats(stats, w, db, ilvl, notes)
     else
         local hitCur = db.specType == "RANGED" and r.hitRanged or r.hitMelee
         local s, useful, waste = CappedScore(stats.HIT, hitCur, caps.hitMelee, w.HIT)
-        score = score + s
+        AddPart(parts, "HIT", s)
         if waste and waste > 0 and useful == 0 then
             tinsert(notes, "hitcap")
         elseif waste and waste > 0 then
@@ -719,7 +2328,7 @@ local function ScoreStats(stats, w, db, ilvl, notes)
     end
     if db.specType == "MELEE" or db.role == "TANK" then
         local s, useful, waste = CappedScore(stats.EXPERTISE, r.expertise, caps.expertise, w.EXPERTISE)
-        score = score + s
+        AddPart(parts, "EXPERTISE", s)
         if waste and waste > 0 and useful == 0 then
             tinsert(notes, "expcap")
         elseif waste and waste > 0 then
@@ -728,45 +2337,68 @@ local function ScoreStats(stats, w, db, ilvl, notes)
     end
     if db.role == "TANK" and db.isMT then
         local s, useful, waste = CappedScore(stats.DEFENSE, r.defense, caps.defense, w.DEFENSE)
-        score = score + s
+        AddPart(parts, "DEFENSE", s)
         if waste and waste > 0 and useful == 0 then
             tinsert(notes, "defcap")
         elseif waste and waste > 0 then
             tinsert(notes, "defpartial")
         end
     elseif stats.DEFENSE then
-        score = score + (stats.DEFENSE or 0) * (w.DEFENSE or 0)
+        AddPart(parts, "DEFENSE", (stats.DEFENSE or 0) * (w.DEFENSE or 0))
+    end
+    if (db.specType == "MELEE" or db.specType == "RANGED" or db.role == "TANK") and (w.ARPEN or 0) > 0 then
+        local s, useful, waste = CappedScore(stats.ARPEN, r.arp, caps.arp, w.ARPEN)
+        AddPart(parts, "ARPEN", s)
+        if waste and waste > 0 and useful == 0 then
+            tinsert(notes, "arpcap")
+        elseif waste and waste > 0 then
+            tinsert(notes, "arppartial")
+        end
     end
 
     local skip = { HIT = true, HIT_SPELL = true, EXPERTISE = true, DEFENSE = true, SOCKET = true }
+    if (db.specType == "MELEE" or db.specType == "RANGED" or db.role == "TANK") and (w.ARPEN or 0) > 0 then
+        skip.ARPEN = true
+    end
     for k, v in pairs(stats) do
         if not skip[k] and STAT_KEYS[k] then
-            score = score + v * (w[k] or 0)
+            AddPart(parts, k, v * (w[k] or 0))
         end
     end
     if stats.SOCKET and stats.SOCKET > 0 then
         local p = w[w._primary or "STR"] or 1
-        score = score + stats.SOCKET * SOCKET_GEM * p
+        AddPart(parts, "SOCKET", stats.SOCKET * SOCKET_GEM * p)
     end
     if ilvl then
-        score = score + ilvl * ILVL_W
+        parts.score = parts.score + ilvl * ILVL_W
     end
-    return score
+    return parts.score, parts.white, parts.green
 end
 
 local function ScoreLink(link, itemID, w, db, notes)
     local name, itemLink, quality, ilvl, _, _, _, _, equipLoc, _, _, typeID = GetItemInfo(link or itemID)
     local stats = ParseItemStats(itemID, itemLink or link)
-    return ScoreStats(stats, w, db, ilvl, notes or {}), stats, ilvl, equipLoc, typeID, itemLink or link
+    local score, white, green = ScoreStats(stats, w, db, ilvl, notes or {})
+    return score, stats, ilvl, equipLoc, typeID, itemLink or link, white, green
 end
 
 function BG.GearScore_RefreshPlayer()
     local r = playerSnap.ratings
-    r.hitMelee = CombatRating(CR_HIT_MELEE)
-    r.hitRanged = CombatRating(CR_HIT_RANGED)
-    r.hitSpell = CombatRating(CR_HIT_SPELL)
+    local ok, th = pcall(ScanPlayerHit)
+    if not ok or type(th) ~= "table" then
+        th = {
+            meleePct = 0, rangedPct = 0, spellPct = 0,
+            talentMeleePct = 0, talentRangedPct = 0, talentSpellPct = 0,
+            racialPct = 0, meleeRating = 0, rangedRating = 0, spellRating = 0,
+        }
+    end
+    playerSnap.talentHit = th
+    r.hitMelee = CombatRating(CR_HIT_MELEE) + RoundHit(th.meleeRating)
+    r.hitRanged = CombatRating(CR_HIT_RANGED) + RoundHit(th.rangedRating)
+    r.hitSpell = CombatRating(CR_HIT_SPELL) + RoundHit(th.spellRating)
     r.expertise = CombatRating(CR_EXPERTISE)
     r.defense = CombatRating(CR_DEFENSE_SKILL)
+    r.arp = CombatRating(CR_ARMOR_PENETRATION)
     wipe(playerSnap.equipped)
     for slot = 1, 19 do
         local link = GetInventoryItemLink("player", slot)
@@ -856,7 +2488,7 @@ local function EvalOne(itemID, link, db, w)
         link = link,
     }
     local name, itemLink, quality, ilvl, _, _, _, _, equipLoc, _, _, typeID, subclassID = GetItemInfo(link or itemID)
-    if not typeID then
+    if (not typeID or not subclassID or not equipLoc) and GetItemInfoInstant then
         local instantID, _, _, loc, _, tID, subID = GetItemInfoInstant(link or itemID)
         itemID = itemID or instantID
         equipLoc = equipLoc or loc
@@ -891,9 +2523,17 @@ local function EvalOne(itemID, link, db, w)
     end
 
     local notes = result.notes
-    local newScore, stats = ScoreLink(itemLink or link, itemID, w, db, notes)
+    local newScore, stats, _, _, _, _, white, green = ScoreLink(itemLink or link, itemID, w, db, notes)
     result.newScore = newScore
     result.stats = stats
+    result.newWhite = white or 0
+    result.newGreen = green or 0
+    if WrongStatSchool(stats, db) then
+        result.suitable = false
+        result.reason = "stats"
+        result.upgrade = 0
+        return result
+    end
     if (equipLoc == "INVTYPE_TRINKET" or equipLoc == "INVTYPE_FINGER") and ItemHasProc(itemID, itemLink or link) then
         tinsert(notes, "proc")
     end
@@ -911,6 +2551,13 @@ local function EvalOne(itemID, link, db, w)
     return result
 end
 
+local function SafeEvalOne(itemID, link, db, w)
+    local ok, r = pcall(EvalOne, itemID, link, db, w)
+    if ok then
+        return r
+    end
+end
+
 function BG.GearScore_Eval(link)
     if not link then return end
     local db = GetDB()
@@ -919,7 +2566,10 @@ function BG.GearScore_Eval(link)
     if type(link) == "number" then
         itemID = link
     else
-        itemID = GetItemID(link) or GetItemInfoInstant(link)
+        itemID = GetItemID(link)
+        if not itemID and GetItemInfoInstant then
+            itemID = GetItemInfoInstant(link)
+        end
     end
     if not itemID then
         return
@@ -934,8 +2584,8 @@ function BG.GearScore_Eval(link)
     if products and #products > 0 then
         local best
         for _, pid in ipairs(products) do
-            local r = EvalOne(pid, pid, db, w)
-            if r.suitable then
+            local r = SafeEvalOne(pid, pid, db, w)
+            if r and r.suitable then
                 if not best or r.newScore > best.newScore then
                     best = r
                     best.tokenItemID = pid
@@ -946,12 +2596,23 @@ function BG.GearScore_Eval(link)
         if best then
             return best
         end
-        local fail = EvalOne(itemID, link, db, w)
+        local fail = SafeEvalOne(itemID, link, db, w)
+        if not fail then
+            return
+        end
         fail.suitable = false
         fail.reason = fail.reason or "class"
         return fail
     end
-    return EvalOne(itemID, link, db, w)
+    return SafeEvalOne(itemID, link, db, w)
+end
+
+-- 名称后只显示升级分；自己不能用/不推荐时不挂叉叉，也不出色块描边
+local function ShowNameBadge(ev)
+    if not ev or not ev.suitable then
+        return false
+    end
+    return true
 end
 
 function BG.GearScore_Format(link, long)
@@ -960,23 +2621,35 @@ function BG.GearScore_Format(link, long)
         return "", 0.5, 0.5, 0.5, r
     end
     if not r.suitable then
-        return "×", 0.45, 0.45, 0.45, r
+        return "", 1, 0.35, 0.35, r
     end
     if r.reason == "unique" then
-        return "=", 0.6, 0.6, 0.6, r
+        return "=", 1, 0.85, 0.2, r
     end
     local u = Round1(r.upgrade)
     if u > 0 then
-        local t = "+" .. u
-        if long then t = L["推荐"] .. " " .. t end
-        return t, 0, 1, 0, r
+        return "+" .. u, 0.2, 1, 0.3, r
     elseif u < 0 then
-        local t = tostring(u)
-        if long then t = L["推荐"] .. " " .. t end
-        return t, 0.7, 0.7, 0.7, r
+        return tostring(u), 0.85, 0.85, 0.85, r
     else
-        return "=", 0.55, 0.55, 0.55, r
+        return "+0", 1, 0.92, 0.25, r
     end
+end
+
+local function BadgeColors(ev)
+    if not ev or not ev.suitable then
+        return 0.42, 0.07, 0.07, 0.95
+    end
+    if ev.reason == "unique" then
+        return 0.38, 0.28, 0.04, 0.95
+    end
+    local u = Round1(ev.upgrade or 0)
+    if u > 0 then
+        return 0.02, 0.48, 0.1, 0.95
+    elseif u < 0 then
+        return 0.16, 0.16, 0.16, 0.95
+    end
+    return 0.38, 0.3, 0.04, 0.95
 end
 
 local REASON_TEXT = {
@@ -985,6 +2658,7 @@ local REASON_TEXT = {
     class = L["职业限定不含你"],
     unique = L["已装备唯一"],
     notgear = L["不是装备"],
+    stats = L["属性不适合你的天赋"],
 }
 
 local NOTE_TEXT = {
@@ -994,16 +2668,21 @@ local NOTE_TEXT = {
     exppartial = L["精准仅缺口部分计入"],
     defcap = L["防御已达标，额外防御几乎不计"],
     defpartial = L["防御仅缺口部分计入"],
+    arpcap = L["破甲已达标，额外破甲几乎不计"],
+    arppartial = L["破甲仅缺口部分计入"],
     proc = L["特效未计入"],
 }
 
 function BG.GearScore_AddTooltip(tooltip, link)
     if not tooltip or not link then return end
     if BiaoGe.options.gearScore ~= 1 then return end
-    local itemID = GetItemID(link) or GetItemInfoInstant(link)
+    local itemID = GetItemID(link)
+    if not itemID and GetItemInfoInstant then
+        itemID = GetItemInfoInstant(link)
+    end
     if not itemID then return end
-    local _, _, _, _, _, _, _, _, _, _, _, typeID = GetItemInfo(link)
-    if typeID ~= 2 and typeID ~= 4 then return end
+    local typeID = ItemTypeID(link)
+    if typeID and typeID ~= 2 and typeID ~= 4 then return end
 
     local text, r, g, b, ev = BG.GearScore_Format(link, true)
     tooltip:AddLine(" ")
@@ -1019,13 +2698,21 @@ function BG.GearScore_AddTooltip(tooltip, link)
         tooltip:Show()
         return
     end
-    tooltip:AddDoubleLine(L["推荐"], text, 1, 0.82, 0, r, g, b)
+    tooltip:AddDoubleLine(L["升级"], text, 1, 0.82, 0, r, g, b)
     local newS = Round1(ev.newScore)
     local oldS = Round1(ev.oldScore)
     if ev.oldLink then
         tooltip:AddDoubleLine(format(L["掉落 %s"], newS), format(L["当前 %s"], oldS), 1, 1, 1, 0.7, 0.7, 0.7)
     else
         tooltip:AddDoubleLine(format(L["掉落 %s"], newS), L["当前栏位空"], 1, 1, 1, 0.7, 0.7, 0.7)
+    end
+    local whiteS = Round1(ev.newWhite)
+    local greenS = Round1(ev.newGreen)
+    if whiteS ~= 0 or greenS ~= 0 then
+        tooltip:AddDoubleLine(
+            format("%s %s", L["白字"], whiteS),
+            format("%s %s", L["绿字"], greenS),
+            0.85, 0.85, 0.85, 0.2, 1, 0.35)
     end
     if ev.tokenItemID and ev.tokenItemID ~= ev.itemID then
         local n = GetItemInfo(ev.tokenItemID)
@@ -1034,13 +2721,23 @@ function BG.GearScore_AddTooltip(tooltip, link)
         end
     end
     local db = GetDB()
-    local labels = {
-        STA = L["耐力"], DODGE = L["躲闪"], PARRY = L["招架"], HASTE = L["急速"],
-        SP = L["法强"], CRIT = L["暴击"], SPI = L["精神"], INT = L["智力"],
-        ARPEN = L["破甲"], AGI = L["敏捷"], STR = L["力量"],
-    }
-    if db.bias1 then
-        tooltip:AddLine(format(L["主堆%s已加权"], labels[db.bias1] or db.bias1), 0.6, 0.6, 0.6)
+    local ep, isCustom = GetEffectiveEPWeights(db)
+    if ep then
+        local ranked = {}
+        for k, v in pairs(ep) do
+            if tonumber(v) and v > 0 then
+                tinsert(ranked, { key = k, value = v })
+            end
+        end
+        table.sort(ranked, function(a, b) return a.value > b.value end)
+        local parts = {}
+        for i = 1, math.min(5, #ranked) do
+            tinsert(parts, format("%s %s", EPLabel(ranked[i].key), FormatWeight(ranked[i].value)))
+        end
+        if #parts > 0 then
+            local prefix = isCustom and L["自定义属性价值"] or L["属性价值"]
+            tooltip:AddLine(prefix .. "：" .. table.concat(parts, "  "), 0.6, 0.6, 0.6)
+        end
     end
     for _, note in ipairs(ev.notes) do
         if NOTE_TEXT[note] then
@@ -1050,15 +2747,50 @@ function BG.GearScore_AddTooltip(tooltip, link)
     tooltip:Show()
 end
 
+local function FSWidth(fs)
+    if not fs or not fs.GetStringWidth then return 0 end
+    return fs:GetStringWidth() or 0
+end
+
+local measureFS
+local function MeasureShownName(text, fontSize)
+    if type(text) ~= "string" or text == "" then return 0 end
+    local name = text:match("|h%[(.-)%]|h") or text:match("%[(.-)%]")
+    if not name then
+        name = text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("|H.-|h", ""):gsub("|h", "")
+    end
+    if name == "" then return 0 end
+    if not measureFS then
+        measureFS = UIParent:CreateFontString()
+        measureFS:Hide()
+    end
+    measureFS:SetFont(BIAOGE_TEXT_FONT, fontSize or 14, "OUTLINE")
+    measureFS:SetText(name)
+    return measureFS:GetStringWidth() or 0
+end
+
+local function SizeScoreBadge(badge, text, r, g, b, br, bgc, bb, ba, fontSize, height)
+    badge.text:SetFont(BIAOGE_TEXT_FONT, fontSize, "OUTLINE")
+    badge.text:SetText(text)
+    badge.text:SetTextColor(r, g, b)
+    badge:SetBackdropColor(br, bgc, bb, ba)
+    badge:SetSize(math.max(FSWidth(badge.text) + 8, 22), height)
+end
+
 function BG.ScoreText(bt, link)
     if not bt then return end
     if not bt.scoreFrame then
-        local f = CreateFrame("Frame", nil, bt)
-        f:SetPoint("RIGHT", -20, 0)
-        f.text = f:CreateFontString()
+        local f = CreateFrame("Frame", nil, bt, "BackdropTemplate")
+        f:EnableMouse(false)
+        f:SetFrameLevel((bt:GetFrameLevel() or 0) + 12)
+        f:SetSize(28, 14)
+        f:SetBackdrop({
+            bgFile = "Interface/ChatFrame/ChatFrameBackground",
+        })
+        f:SetBackdropBorderColor(0, 0, 0, 0)
+        f.text = f:CreateFontString(nil, "OVERLAY")
         f.text:SetFont(BIAOGE_TEXT_FONT, 11, "OUTLINE")
-        f.text:SetPoint("RIGHT", 0, 0)
-        f:SetSize(32, 20)
+        f.text:SetPoint("CENTER", 0, 0)
         bt.scoreFrame = f
     end
     if BiaoGe.options.gearScore ~= 1 or BiaoGe.options.gearScoreTable ~= 1 then
@@ -1071,28 +2803,46 @@ function BG.ScoreText(bt, link)
         bt.scoreFrame:Hide()
         return
     end
-    local _, _, _, _, _, _, _, _, _, _, _, typeID = GetItemInfo(text)
-    if typeID ~= 2 and typeID ~= 4 then
-        local _, _, _, _, _, tID = GetItemInfoInstant(text)
-        typeID = tID
-    end
-    if typeID ~= 2 and typeID ~= 4 then
+    local typeID = ItemTypeID(text)
+    if typeID and typeID ~= 2 and typeID ~= 4 then
         bt.scoreFrame:Hide()
         return
     end
-    local short, r, g, b = BG.GearScore_Format(text)
-    if short == "" then
+    local short, r, g, b, ev = BG.GearScore_Format(text)
+    if not ShowNameBadge(ev) or not short or short == "" then
         bt.scoreFrame:Hide()
         return
     end
-    bt.scoreFrame.text:SetText(short)
-    bt.scoreFrame.text:SetTextColor(r, g, b)
-    local x = -20
+    local br, bg, bb, ba = BadgeColors(ev)
+    SizeScoreBadge(bt.scoreFrame, short, r, g, b, br, bg, bb, ba, 11, 14)
+
+    -- 贴在装备名称后面，不要贴在右侧装等旁边
+    local rightReserve = 22
+    if bt.levelText and bt.levelText:IsShown() then
+        rightReserve = math.max(rightReserve, FSWidth(bt.levelText.text) + 8)
+    end
     if bt.bindingTex and bt.bindingTex:IsVisible() then
-        x = -28
+        rightReserve = rightReserve + 14
     end
+    local boxW = bt:GetWidth() or 0
+    local badgeW = bt.scoreFrame:GetWidth() or 22
+    local fontSize = (BiaoGe.options and BiaoGe.options.editFontSize) or 14
+    local nameW = MeasureShownName(text, fontSize)
+    local leftInset = 0
+    if bt.GetTextInsets then
+        leftInset = select(1, bt:GetTextInsets()) or 0
+    end
+    if boxW > 0 and nameW > boxW then
+        nameW = boxW
+    end
+    local x = leftInset + nameW + 3
+    local maxX = boxW - rightReserve - badgeW
+    if maxX < 2 then maxX = 2 end
+    if x > maxX then x = maxX end
+    if x < 2 then x = 2 end
+    bt.scoreFrame:SetFrameLevel((bt:GetFrameLevel() or 0) + 12)
     bt.scoreFrame:ClearAllPoints()
-    bt.scoreFrame:SetPoint("RIGHT", x, 0)
+    bt.scoreFrame:SetPoint("LEFT", x, 0)
     bt.scoreFrame:Show()
 end
 
@@ -1118,45 +2868,112 @@ function BG.UpdateAllGearScore()
     end
 end
 
+local function SetAuctionTextWidths(bidFrame, nameExtra, typeExtra)
+    local f = bidFrame.itemFrame
+    local nameFS = f and f.itemNameText
+    local typeFS = f and f.itemTypeText
+    if not (f and nameFS) then return end
+    local base = (f:GetWidth() or 0) - (f:GetHeight() or 0)
+    local nameW = base - (nameExtra or 50)
+    if nameW > 40 then
+        nameFS:SetWidth(nameW)
+    end
+    if typeFS then
+        local typeW = base - (typeExtra or 50)
+        if typeW > 40 then
+            typeFS:SetWidth(typeW)
+        end
+        if typeFS.SetWordWrap then
+            typeFS:SetWordWrap(false)
+        end
+    end
+end
+
 function BG.GearScore_UpdateAuctionFrame(bidFrame)
     if not bidFrame then return end
-    if not bidFrame.scoreText then
+    if not bidFrame.scoreHolder then
         local parent = bidFrame.itemFrame or bidFrame
-        local fs = parent:CreateFontString()
-        fs:SetFont(BIAOGE_TEXT_FONT, 12, "OUTLINE")
-        fs:SetJustifyH("LEFT")
+        local badge = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+        badge:EnableMouse(false)
+        badge:SetBackdrop({
+            bgFile = "Interface/ChatFrame/ChatFrameBackground",
+        })
+        badge:SetBackdropBorderColor(0, 0, 0, 0)
+        local fs = badge:CreateFontString(nil, "OVERLAY")
+        fs:SetFont(BIAOGE_TEXT_FONT, 13, "OUTLINE")
+        fs:SetPoint("CENTER", 0, 0)
+        badge.text = fs
+        bidFrame.scoreHolder = badge
         bidFrame.scoreText = fs
     end
+    local badge = bidFrame.scoreHolder
+    local parent = badge:GetParent()
+    badge:SetFrameLevel((parent:GetFrameLevel() or 0) + 25)
+
     if BiaoGe.options.gearScore ~= 1 or BiaoGe.options.gearScoreAuction ~= 1 then
-        bidFrame.scoreText:SetText("")
+        badge:Hide()
+        SetAuctionTextWidths(bidFrame, 50, 50)
         return
     end
     local link = bidFrame.link or (bidFrame.itemFrame and bidFrame.itemFrame.link)
     if not link then
-        bidFrame.scoreText:SetText("")
+        badge:Hide()
+        SetAuctionTextWidths(bidFrame, 50, 50)
         return
     end
-    local long = not bidFrame.IsSmallWindow
-    local text, r, g, b = BG.GearScore_Format(link, long)
-    bidFrame.scoreText:SetText(text)
-    bidFrame.scoreText:SetTextColor(r, g, b)
-    bidFrame.scoreText:ClearAllPoints()
-    if bidFrame.IsSmallWindow then
-        bidFrame.scoreText:SetFont(BIAOGE_TEXT_FONT, 11, "OUTLINE")
-        if bidFrame.currentMoneyFrame then
-            bidFrame.scoreText:SetPoint("RIGHT", bidFrame.currentMoneyFrame, "LEFT", -6, 0)
-        else
-            bidFrame.scoreText:SetPoint("RIGHT", bidFrame, "RIGHT", -50, 0)
-        end
-    else
-        bidFrame.scoreText:SetFont(BIAOGE_TEXT_FONT, 12, "OUTLINE")
-        local nameFS = bidFrame.itemFrame and bidFrame.itemFrame.itemNameText
-        if nameFS then
-            bidFrame.scoreText:SetPoint("TOPLEFT", nameFS, "BOTTOMLEFT", 0, -1)
-        else
-            bidFrame.scoreText:SetPoint("TOPLEFT", bidFrame.itemFrame, "TOPLEFT", 40, -18)
-        end
+    local text, r, g, b, ev = BG.GearScore_Format(link)
+    if not ShowNameBadge(ev) or not text or text == "" then
+        badge:Hide()
+        SetAuctionTextWidths(bidFrame, 50, 50)
+        return
     end
+    local br, bgc, bb, ba = BadgeColors(ev)
+    local isSmall = bidFrame.IsSmallWindow
+    if badge.caption then
+        badge.caption:Hide()
+    end
+    badge.text:ClearAllPoints()
+    badge.text:SetPoint("CENTER", 0, 0)
+    SizeScoreBadge(badge, text, r, g, b, br, bgc, bb, ba, isSmall and 12 or 13, isSmall and 16 or 18)
+
+    local nameFS = bidFrame.itemFrame and bidFrame.itemFrame.itemNameText
+    local remain = bidFrame.remainingTime
+    local remainW = 36
+    if remain then
+        remainW = math.max(FSWidth(remain), 28) + 8
+    end
+    local badgeW = badge:GetWidth() or 28
+    if isSmall then
+        SetAuctionTextWidths(bidFrame, 110 + badgeW, 50)
+    else
+        -- 类型行只给剩余时间留位，分数贴在物品名后面，避免盖住「匕首」
+        SetAuctionTextWidths(bidFrame, remainW + badgeW + 8, remainW)
+    end
+
+    badge:ClearAllPoints()
+    if nameFS then
+        local nw = FSWidth(nameFS)
+        local cap = nameFS.GetWidth and nameFS:GetWidth() or nw
+        if cap and cap > 0 and nw > cap then
+            nw = cap
+        end
+        if bidFrame.itemFrame.nameHaveTex and bidFrame.itemFrame.nameHaveTex:IsShown() then
+            nw = nw + 16
+        end
+        if nw < 8 and not bidFrame._gsNameRetry then
+            bidFrame._gsNameRetry = true
+            BG.After(0, function()
+                bidFrame._gsNameRetry = nil
+                BG.GearScore_UpdateAuctionFrame(bidFrame)
+            end)
+        end
+        badge:SetPoint("LEFT", nameFS, "LEFT", nw + 4, 0)
+    elseif isSmall and bidFrame.currentMoneyFrame then
+        badge:SetPoint("RIGHT", bidFrame.currentMoneyFrame, "LEFT", -6, 0)
+    else
+        badge:SetPoint("RIGHT", parent, "RIGHT", -8, 0)
+    end
+    badge:Show()
 end
 
 local dirty
@@ -1174,10 +2991,28 @@ end
 
 local function ApplyGuessIfNeeded()
     local db = GetDB()
-    if db.userSet then return end
-    local role, specType, isMT = GuessProfile()
-    db.role, db.specType, db.isMT = role, specType, isMT and true or false
-    db.bias1, db.bias2 = DefaultBias(role, specType)
+    local oldRole, oldSpec = db.role, db.specType
+    if not db.talentLocked then
+        db.talentTab = DetectTalentTab()
+    end
+    local class = GetClassFile()
+    local def = SpecDef(class, db.talentTab)
+    db.specType = def.specType
+    local keepRole = db.roleLocked or (db.userSet and RoleAllowedForClass(class, db.role))
+    if keepRole and RoleAllowedForClass(class, db.role) then
+        if db.role ~= "TANK" then
+            db.isMT = false
+        elseif db.isMT == nil then
+            db.isMT = true
+        end
+    else
+        db.role = def.role
+        db.isMT = db.role == "TANK"
+    end
+    NormalizeProfile(db)
+    if not db.userSet and (db.role ~= oldRole or db.specType ~= oldSpec) then
+        db.bias1, db.bias2 = DefaultBias(db.role, db.specType)
+    end
 end
 
 BG.Init(function()
@@ -1187,14 +3022,34 @@ BG.Init(function()
     if BiaoGe.options.gearScoreTable == nil then BiaoGe.options.gearScoreTable = 1 end
     if BiaoGe.options.gearScoreAuction == nil then BiaoGe.options.gearScoreAuction = 1 end
     GetDB()
+    ApplyGuessIfNeeded()
+    if BG.GearScore_PrefTabUI then
+        BG.GearScore_PrefTabUI()
+    end
+    if BG.GearScore_SpecBarUI then
+        BG.GearScore_SpecBarUI()
+    end
 end)
 
 BG.Init2(function()
     ApplyGuessIfNeeded()
+    if BG.GearScore_SpecBarUI then
+        BG.GearScore_SpecBarUI()
+    end
+    if BG.GearScore_RefreshSpecBar then
+        BG.GearScore_RefreshSpecBar()
+    end
     BG.After(1.2, function()
+        ApplyGuessIfNeeded()
         BG.GearScore_RefreshPlayer()
         playerSnap.scanned = true
         BG.UpdateAllGearScore()
+        if BG.GearScore_RefreshProfileUI then
+            BG.GearScore_RefreshProfileUI()
+        end
+        if BG.GearScore_RefreshSpecBar then
+            BG.GearScore_RefreshSpecBar()
+        end
     end)
 end)
 
@@ -1203,9 +3058,22 @@ BG.RegisterEvent({
     "COMBAT_RATING_UPDATE",
     "PLAYER_REGEN_ENABLED",
     "PLAYER_TALENT_UPDATE",
+    "ACTIVE_TALENT_GROUP_CHANGED",
+    "CHARACTER_POINTS_CHANGED",
 }, function(_, event)
-    if event == "PLAYER_TALENT_UPDATE" then
+    if event == "PLAYER_TALENT_UPDATE" or event == "ACTIVE_TALENT_GROUP_CHANGED" or event == "CHARACTER_POINTS_CHANGED" then
         ApplyGuessIfNeeded()
+        if BG.GearScore_RefreshSpecBar then
+            BG.GearScore_RefreshSpecBar()
+        end
+        if BG.GearPrefMainFrame and BG.GearPrefMainFrame:IsVisible() then
+            if BG.GearScore_RefreshProfileUI then
+                BG.GearScore_RefreshProfileUI()
+            end
+            if BG.GearScore_RefreshWeightsPanel then
+                BG.GearScore_RefreshWeightsPanel()
+            end
+        end
     end
     if event ~= "PLAYER_REGEN_ENABLED" and InCombatLockdown() then
         dirty = true
@@ -1223,11 +3091,90 @@ C_Timer.NewTicker(0.8, function()
     BG.UpdateAllGearScore()
 end)
 
--- Options tab widgets
+local function PlayerSP()
+    if not GetSpellBonusDamage then return 0 end
+    local best = 0
+    for i = 2, 7 do
+        local v = GetSpellBonusDamage(i) or 0
+        if v > best then best = v end
+    end
+    return best
+end
+
+local function ReadEPStat(key)
+    local r = playerSnap.ratings or {}
+    if key == "str" then
+        return (UnitStat("player", 1)) or 0
+    elseif key == "agi" then
+        return (UnitStat("player", 2)) or 0
+    elseif key == "sta" then
+        return (UnitStat("player", 3)) or 0
+    elseif key == "int" then
+        return (UnitStat("player", 4)) or 0
+    elseif key == "spi" then
+        return (UnitStat("player", 5)) or 0
+    elseif key == "ap" then
+        local b, p, n = UnitAttackPower("player")
+        return (b or 0) + (p or 0) + (n or 0)
+    elseif key == "rap" then
+        local b, p, n = UnitRangedAttackPower("player")
+        return (b or 0) + (p or 0) + (n or 0)
+    elseif key == "sp" then
+        return PlayerSP()
+    elseif key == "heal" then
+        return GetSpellBonusHealing and GetSpellBonusHealing() or 0
+    elseif key == "mp5" then
+        if GetManaRegen then
+            return (GetManaRegen() or 0) * 5
+        end
+        return 0
+    elseif key == "armor" then
+        return (UnitArmor("player")) or 0
+    elseif key == "hitRating" then
+        return r.hitMelee or CombatRating(CR_HIT_MELEE)
+    elseif key == "rangedHitRating" then
+        return r.hitRanged or CombatRating(CR_HIT_RANGED)
+    elseif key == "spellHitRating" then
+        return r.hitSpell or CombatRating(CR_HIT_SPELL)
+    elseif key == "critRating" then
+        return CombatRating(CR_CRIT_MELEE)
+    elseif key == "spellCritRating" then
+        return CombatRating(CR_CRIT_SPELL)
+    elseif key == "rangedCritChance" then
+        if GetRangedCritChance then
+            return GetRangedCritChance() or 0
+        end
+        return CombatRating(CR_CRIT_RANGED)
+    elseif key == "hasteRating" then
+        return CombatRating(CR_HASTE_MELEE)
+    elseif key == "spellHasteRating" then
+        return CombatRating(CR_HASTE_SPELL)
+    elseif key == "rangedHasteRating" then
+        return CombatRating(CR_HASTE_RANGED)
+    elseif key == "expertiseRating" then
+        return r.expertise or CombatRating(CR_EXPERTISE)
+    elseif key == "arpRating" then
+        return CombatRating(CR_ARMOR_PENETRATION)
+    elseif key == "dodge" then
+        return CombatRating(CR_DODGE)
+    elseif key == "parry" then
+        return CombatRating(CR_PARRY)
+    elseif key == "block" then
+        return CombatRating(CR_BLOCK)
+    elseif key == "blockValue" then
+        return GetShieldBlock and GetShieldBlock() or 0
+    elseif key == "defense" then
+        return r.defense or CombatRating(CR_DEFENSE_SKILL)
+    end
+    return 0
+end
+
+-- 人物属性 / 装备偏好面板
 function BG.GearScore_OptionsUI(parent)
     local db = GetDB()
     local width = 15
     local y = -10
+    local lineWidth = 700
 
     local function Header(text, yy)
         local t = parent:CreateFontString()
@@ -1237,31 +3184,77 @@ function BG.GearScore_OptionsUI(parent)
         return t
     end
 
-    local name = "gearScore"
-    BG.options[name .. "reset"] = 1
-    local fEnable = ns.O.CreateCheckButton(name, L["启用自身装备评分"], parent, 15, y, {
+    local function CreateLine(yy)
+        local l = parent:CreateLine()
+        l:SetColorTexture(RGB("808080", 1))
+        l:SetStartPoint("TOPLEFT", 5, yy)
+        l:SetEndPoint("TOPLEFT", lineWidth, yy)
+        l:SetThickness(1.5)
+        return l
+    end
+
+    local function CreateCheckButton(name, text, x, yy, ontext, callback)
+        local bt = CreateFrame("CheckButton", nil, parent, "ChatConfigCheckButtonTemplate")
+        bt:SetSize(30, 30)
+        bt:SetPoint("TOPLEFT", parent, x, yy)
+        bt.Text:SetFont(BIAOGE_TEXT_FONT, 15, "OUTLINE")
+        bt.Text:SetText(text)
+        bt.Text:SetWordWrap(false)
+        bt.Text:SetWidth(min(bt.Text:GetStringWidth() + 20, 500))
+        bt:SetHitRectInsets(0, -bt.Text:GetWidth(), 0, 0)
+        bt.name = name
+        bt.ontext = ontext
+        bt.callback = callback
+        BG.options["button" .. name] = bt
+        BG.options[name .. "reset"] = BG.options[name .. "reset"] or 1
+        bt:SetChecked(BiaoGe.options[name] == 1)
+        bt:SetScript("OnClick", function(self)
+            BiaoGe.options[self.name] = self:GetChecked() and 1 or 0
+            if self.callback then
+                self.callback()
+            end
+            BG.PlaySound(1)
+        end)
+        bt:SetScript("OnEnter", function(self)
+            if not self.ontext then return end
+            GameTooltip:SetOwner(self, "ANCHOR_TOPLEFT", 0, 0)
+            GameTooltip:ClearLines()
+            if type(self.ontext) == "table" then
+                for i, tipText in ipairs(self.ontext) do
+                    if i == 1 then
+                        GameTooltip:AddLine(tipText, 1, 1, 1, true)
+                    else
+                        GameTooltip:AddLine(tipText, 1, 0.82, 0, true)
+                    end
+                end
+                GameTooltip:Show()
+            else
+                GameTooltip:SetText(self.ontext)
+            end
+        end)
+        bt:SetScript("OnLeave", GameTooltip_Hide)
+        bt:SetScript("OnShow", function(self)
+            self:SetChecked(BiaoGe.options[self.name] == 1)
+        end)
+        return bt
+    end
+
+    local fEnable = CreateCheckButton("gearScore", L["启用自身装备评分"], 15, y, {
         L["启用自身装备评分"],
-        L["分数只针对你自己，不会同步给团队。命中/精准/防御达标后，超出部分几乎不计分。同职业选择不同偏向，会推荐不同装备。"],
-    }, true, { BG.GearScore_OnSettingChanged })
-    BG.options["button" .. name] = fEnable
+        L["分数只针对你自己，对比的是你当前穿的装备。白字只是一部分，绿字（命中/暴击/急速/破甲/攻强/法强）经常更值钱。缺命中时命中装分高，达标后别人会去抢别的属性。"],
+    }, BG.GearScore_OnSettingChanged)
     y = y - 30
 
-    local name2 = "gearScoreTable"
-    BG.options[name2 .. "reset"] = 1
-    local fTable = ns.O.CreateCheckButton(name2, L["在表格装备格显示升级分"], parent, 15, y, {
+    local fTable = CreateCheckButton("gearScoreTable", L["在表格装备格显示升级分"], 15, y, {
         L["在表格装备格显示升级分"],
-        L["在装备名右侧显示相对你当前同部位的升级分，例如 +23。"],
-    }, true, { BG.GearScore_OnSettingChanged })
-    BG.options["button" .. name2] = fTable
+        L["在装备名称后面显示相对你当前同部位的升级分，例如 +23。"],
+    }, BG.GearScore_OnSettingChanged)
     y = y - 30
 
-    local name3 = "gearScoreAuction"
-    BG.options[name3 .. "reset"] = 1
-    local fAuc = ns.O.CreateCheckButton(name3, L["在拍卖竞价窗显示升级分"], parent, 15, y, {
+    local fAuc = CreateCheckButton("gearScoreAuction", L["在拍卖竞价窗显示升级分"], 15, y, {
         L["在拍卖竞价窗显示升级分"],
-        L["团长开拍时，竞价窗物品名下显示你的推荐升级分。"],
-    }, true, { BG.GearScore_OnSettingChanged })
-    BG.options["button" .. name3] = fAuc
+        L["团长开拍时，竞价窗物品名称后面显示你的推荐升级分。"],
+    }, BG.GearScore_OnSettingChanged)
     y = y - 28
 
     local tip = parent:CreateFontString()
@@ -1270,12 +3263,12 @@ function BG.GearScore_OptionsUI(parent)
     tip:SetWidth(520)
     tip:SetJustifyH("LEFT")
     tip:SetTextColor(0.7, 0.7, 0.7)
-    tip:SetText(L["分数只针对你自己，不会同步给团队。命中/精准/防御达标后，超出部分几乎不计分。同职业选择不同偏向，会推荐不同装备。"])
+    tip:SetText(L["分数只针对你自己，对比的是你当前穿的装备。白字只是一部分，绿字（命中/暴击/急速/破甲/攻强/法强）经常更值钱。缺命中时命中装分高，达标后别人会去抢别的属性。"])
     y = y - 40
 
-    ns.O.CreateLine(parent, y + 8)
+    CreateLine(y + 8)
     y = y - 8
-    Header(L["自身状态"], y)
+    Header(L["属性"], y)
     y = y - 22
 
     local statusLine = parent:CreateFontString()
@@ -1295,7 +3288,21 @@ function BG.GearScore_OptionsUI(parent)
     local defLine = parent:CreateFontString()
     defLine:SetFont(BIAOGE_TEXT_FONT, 13, "OUTLINE")
     defLine:SetPoint("TOPLEFT", width, y)
-    y = y - 26
+    y = y - 22
+
+    local attrScoreLine = parent:CreateFontString()
+    attrScoreLine:SetFont(BIAOGE_TEXT_FONT, 13, "OUTLINE")
+    attrScoreLine:SetPoint("TOPLEFT", width, y)
+    attrScoreLine:SetJustifyH("LEFT")
+    y = y - 20
+
+    local attrDetailLine = parent:CreateFontString()
+    attrDetailLine:SetFont(BIAOGE_TEXT_FONT, 13, "OUTLINE")
+    attrDetailLine:SetPoint("TOPLEFT", width, y)
+    attrDetailLine:SetWidth(700)
+    attrDetailLine:SetJustifyH("LEFT")
+    attrDetailLine:SetSpacing(3)
+    y = y - 96
 
     local function CapColor(cur, cap, needed)
         if not needed then
@@ -1318,22 +3325,41 @@ function BG.GearScore_OptionsUI(parent)
         end
         local className = GetClassName()
         local color = select(4, GetClassColor(class))
-        statusLine:SetText(format("|c%s%s|r  %s %s   %s %.0f", color or "ffffffff", className, L["主属性"], primaryName, L["装等"], ilvl))
+        local talentName = TalentTabName(class, db.talentTab or GetMainTree())
+        statusLine:SetText(format("|c%s%s|r  %s  %s   %s %s   %s %.0f",
+            color or "ffffffff", className, RoleLabel(db.role), talentName,
+            L["主属性"], primaryName, L["装等"], ilvl))
 
         local caps = GetCaps(db)
         local r = playerSnap.ratings
-        local hitCur, hitCap, hitNeed
+        local th = playerSnap.talentHit or {}
+        local function HitNote(talentPct)
+            local parts = {}
+            talentPct = talentPct or 0
+            if talentPct > 0 then
+                tinsert(parts, format("%s+%d%%", L["天赋"], talentPct))
+            end
+            if (th.racialPct or 0) > 0 then
+                tinsert(parts, format("%s+%d%%", L["种族"], th.racialPct))
+            end
+            if #parts == 0 then
+                return ""
+            end
+            return "  |cff00ff00" .. table.concat(parts, " ") .. "|r"
+        end
+        local hitCur, hitCap
         if db.role == "HEAL" then
             hitLine:SetText(L["命中"] .. "：|cff808080" .. L["不需要"] .. "|r")
         elseif db.specType == "CASTER" then
-            hitCur, hitCap, hitNeed = r.hitSpell, caps.hitSpell, true
-            hitLine:SetText(format("%s：%s%d / %d|r  %s", L["命中"], CapColor(hitCur, hitCap, true), hitCur, hitCap,
-                hitCur >= hitCap and L["达标"] or L["未达标"]))
+            hitCur, hitCap = r.hitSpell, caps.hitSpell
+            hitLine:SetText(format("%s：%s%d / %d|r  %s%s", L["命中"], CapColor(hitCur, hitCap, true), hitCur, hitCap,
+                hitCur >= hitCap and L["达标"] or L["未达标"], HitNote(th.talentSpellPct)))
         else
             hitCur = db.specType == "RANGED" and r.hitRanged or r.hitMelee
             hitCap = caps.hitMelee
-            hitLine:SetText(format("%s：%s%d / %d|r  %s", L["命中"], CapColor(hitCur, hitCap, true), hitCur, hitCap,
-                hitCur >= hitCap and L["达标"] or L["未达标"]))
+            local tPct = db.specType == "RANGED" and th.talentRangedPct or th.talentMeleePct
+            hitLine:SetText(format("%s：%s%d / %d|r  %s%s", L["命中"], CapColor(hitCur, hitCap, true), hitCur, hitCap,
+                hitCur >= hitCap and L["达标"] or L["未达标"], HitNote(tPct)))
         end
         if db.specType == "MELEE" or db.role == "TANK" then
             expLine:SetText(format("%s：%s%d / %d|r  %s", L["精准"], CapColor(r.expertise, caps.expertise, true),
@@ -1347,121 +3373,83 @@ function BG.GearScore_OptionsUI(parent)
         else
             defLine:SetText(L["防御"] .. "：|cff808080" .. L["不需要"] .. "|r")
         end
+
+        local ep, isCustom = GetEffectiveEPWeights(db)
+        if ep then
+            local ranked = {}
+            local score = 0
+            for k, v in pairs(ep) do
+                local wgt = tonumber(v) or 0
+                local cur = ReadEPStat(k) or 0
+                score = score + cur * wgt
+                tinsert(ranked, { key = k, value = wgt, cur = cur })
+            end
+            table.sort(ranked, function(a, b)
+                if a.value == b.value then
+                    return a.key < b.key
+                end
+                return a.value > b.value
+            end)
+            local tag = isCustom and L["自定义"] or L["默认"]
+            attrScoreLine:SetText(format("%s：|cff00ff00%.0f|r    %s", L["属性评分"], score, tag))
+            local cols, lines, col = {}, {}, 0
+            for _, row in ipairs(ranked) do
+                col = col + 1
+                tinsert(cols, format("%s |cffffffff%.0f|r", EPLabel(row.key), row.cur))
+                if col == 3 then
+                    tinsert(lines, table.concat(cols, "    "))
+                    cols, col = {}, 0
+                end
+            end
+            if #cols > 0 then
+                tinsert(lines, table.concat(cols, "    "))
+            end
+            attrDetailLine:SetText(table.concat(lines, "\n"))
+        else
+            attrScoreLine:SetText(L["当前职业暂无属性权重数据。"])
+            attrDetailLine:SetText("")
+        end
     end
     BG.GearScore_RefreshOptionsStatus = RefreshStatus
 
-    ns.O.CreateLine(parent, y + 8)
+    CreateLine(y + 8)
     y = y - 8
-    Header(L["职责"], y)
-    y = y - 26
 
-    local roleButtons = {}
-    local specButtons = {}
-    local function PaintButtons(list, cur, field)
-        for _, bt in ipairs(list) do
-            if bt.key == cur then
-                bt:GetFontString():SetTextColor(0, 1, 0)
-            else
-                bt:GetFontString():SetTextColor(1, 0.82, 0)
-            end
-        end
-    end
-
-    local dropBias1, dropBias2
-    local function RefreshBiasDrops()
-        db = GetDB()
-        local opts = BG.GearScore_BiasOptions(db.role, db.specType, PrimaryFor(GetClassFile(), db.role, db.specType))
-        local function labelOf(key, allowNone)
-            if allowNone and (not key or key == "NONE") then
-                return L["无"]
-            end
-            for _, o in ipairs(opts) do
-                if o.key == key then return o.label end
-            end
-            return key or ""
-        end
-        if dropBias1 then
-            LibBG:UIDropDownMenu_SetText(dropBias1, labelOf(db.bias1))
-        end
-        if dropBias2 then
-            LibBG:UIDropDownMenu_SetText(dropBias2, labelOf(db.bias2, true))
-        end
-    end
+    local RefreshWeightsPanel
 
     local function AfterRoleChange(resetBias, silent)
         db = GetDB()
+        NormalizeProfile(db)
         if not silent then
             db.userSet = true
         end
         if resetBias then
             db.bias1, db.bias2 = DefaultBias(db.role, db.specType)
         end
-        PaintButtons(roleButtons, db.role)
-        PaintButtons(specButtons, db.specType)
+        RefreshSpecButtons()
         if BG.GearScoreMTCheck then
             BG.GearScoreMTCheck:SetShown(db.role == "TANK")
             BG.GearScoreMTCheck:SetChecked(db.isMT)
         end
-        if BG.GearScoreSpecRow then
-            BG.GearScoreSpecRow:SetShown(db.role == "DPS")
-        end
         if BG.GearScoreDWCheck then
             BG.GearScoreDWCheck:SetShown(db.role == "TANK" or db.specType == "MELEE")
         end
-        RefreshBiasDrops()
+        if BG.GearScoreSpellHitCheck then
+            BG.GearScoreSpellHitCheck:SetShown(db.specType == "CASTER" and db.role ~= "HEAL")
+        end
         RefreshStatus()
+        if RefreshWeightsPanel then
+            RefreshWeightsPanel()
+        end
         if not silent then
             BG.GearScore_OnSettingChanged()
             BG.PlaySound(1)
         end
     end
-
-    local roles = {
-        { key = "TANK", text = L["坦克"] },
-        { key = "HEAL", text = L["治疗"] },
-        { key = "DPS", text = L["输出"] },
-    }
-    for i, v in ipairs(roles) do
-        local bt = BG.CreateButton(parent)
-        bt:SetSize(70, 24)
-        bt:SetPoint("TOPLEFT", width + (i - 1) * 80, y)
-        bt:SetText(v.text)
-        bt.key = v.key
-        bt:SetScript("OnClick", function()
-            db.role = v.key
-            if v.key == "HEAL" then
-                db.specType = "CASTER"
-            elseif v.key == "TANK" then
-                db.specType = "MELEE"
-            end
-            AfterRoleChange(true)
-        end)
-        tinsert(roleButtons, bt)
+    applyProfileChange = AfterRoleChange
+    BG.GearScore_RefreshProfileUI = function()
+        AfterRoleChange(false, true)
     end
-    y = y - 32
-
-    local specRow = CreateFrame("Frame", nil, parent)
-    specRow:SetSize(400, 28)
-    specRow:SetPoint("TOPLEFT", width, y)
-    BG.GearScoreSpecRow = specRow
-    local specs = {
-        { key = "MELEE", text = L["近战"] },
-        { key = "RANGED", text = L["远程物理"] },
-        { key = "CASTER", text = L["法系"] },
-    }
-    for i, v in ipairs(specs) do
-        local bt = BG.CreateButton(specRow)
-        bt:SetSize(80, 24)
-        bt:SetPoint("LEFT", (i - 1) * 90, 0)
-        bt:SetText(v.text)
-        bt.key = v.key
-        bt:SetScript("OnClick", function()
-            db.specType = v.key
-            AfterRoleChange(true)
-        end)
-        tinsert(specButtons, bt)
-    end
-    y = y - 32
 
     local function MakeProfileCheck(label, tip, checked, onClick)
         local bt = CreateFrame("CheckButton", nil, parent, "ChatConfigCheckButtonTemplate")
@@ -1500,71 +3488,15 @@ function BG.GearScore_OptionsUI(parent)
     BG.GearScoreDWCheck = dw
     y = y - 28
 
-    MakeProfileCheck(L["法术命中按17%"], L["不勾选时按 14%（常见天赋减 3%）。"], db.spellHit17, function(self)
+    local spellHit = MakeProfileCheck(L["法术命中按17%"], L["不勾选时按 14%（团队命中减益）。天赋和种族提供的命中会自动计入。"], db.spellHit17, function(self)
         db.spellHit17 = self:GetChecked() and true or false
         db.userSet = true
         AfterRoleChange(false)
     end)
+    BG.GearScoreSpellHitCheck = spellHit
     y = y - 30
 
-    ns.O.CreateLine(parent, y + 8)
-    y = y - 8
-    Header(L["偏向"], y)
-    y = y - 28
-
-    local function MakeBiasDrop(which, x)
-        local drop = LibBG:Create_UIDropDownMenu(nil, parent)
-        drop:SetPoint("TOPLEFT", x, y)
-        LibBG:UIDropDownMenu_SetWidth(drop, 110)
-        LibBG:UIDropDownMenu_SetAnchor(drop, 0, 0, "TOP", drop, "BOTTOM")
-        BG.dropDownToggle(drop)
-        local title = drop:CreateFontString()
-        title:SetPoint("BOTTOM", drop, "TOP", 0, 4)
-        title:SetFont(BIAOGE_TEXT_FONT, 13, "OUTLINE")
-        title:SetText(which == 1 and L["主偏向"] or L["次偏向"])
-        LibBG:UIDropDownMenu_Initialize(drop, function()
-            db = GetDB()
-            local opts = BG.GearScore_BiasOptions(db.role, db.specType, PrimaryFor(GetClassFile(), db.role, db.specType))
-            if which == 2 then
-                local info = LibBG:UIDropDownMenu_CreateInfo()
-                info.text = L["无"]
-                info.func = function()
-                    db.bias2 = "NONE"
-                    db.userSet = true
-                    LibBG:UIDropDownMenu_SetText(drop, L["无"])
-                    BG.GearScore_OnSettingChanged()
-                    BG.PlaySound(1)
-                end
-                info.checked = not db.bias2 or db.bias2 == "NONE"
-                LibBG:UIDropDownMenu_AddButton(info)
-            end
-            for _, o in ipairs(opts) do
-                local info = LibBG:UIDropDownMenu_CreateInfo()
-                info.text = o.label
-                info.func = function()
-                    if which == 1 then
-                        db.bias1 = o.key
-                        if db.bias2 == o.key then db.bias2 = "NONE" end
-                    else
-                        db.bias2 = o.key
-                    end
-                    db.userSet = true
-                    LibBG:UIDropDownMenu_SetText(drop, o.label)
-                    RefreshBiasDrops()
-                    BG.GearScore_OnSettingChanged()
-                    BG.PlaySound(1)
-                end
-                info.checked = (which == 1 and db.bias1 == o.key) or (which == 2 and db.bias2 == o.key)
-                LibBG:UIDropDownMenu_AddButton(info)
-            end
-        end)
-        return drop
-    end
-    dropBias1 = MakeBiasDrop(1, 0)
-    dropBias2 = MakeBiasDrop(2, 180)
-    y = y - 50
-
-    ns.O.CreateLine(parent, y + 8)
+    CreateLine(y + 8)
     y = y - 8
     Header(L["门槛"], y)
     y = y - 24
@@ -1619,11 +3551,290 @@ function BG.GearScore_OptionsUI(parent)
         BG.GearScore_OnSettingChanged()
         BG.PlaySound(1)
     end)
+    y = y - 40
+
+    CreateLine(y + 8)
+    y = y - 8
+    Header(L["属性价值"], y)
+    y = y - 22
+
+    local weightTip = parent:CreateFontString()
+    weightTip:SetFont(BIAOGE_TEXT_FONT, 13, "OUTLINE")
+    weightTip:SetPoint("TOPLEFT", width, y)
+    weightTip:SetWidth(700)
+    weightTip:SetJustifyH("LEFT")
+    weightTip:SetTextColor(1, 0.82, 0)
+    weightTip:SetText(L["默认按天赋给出属性价值，绿字（命中/暴击/急速/破甲/攻强/法强）按模拟器权重计，往往比白字更值钱。可按自己的配装习惯改。"])
+    y = y - 24
+
+    local weightBox = CreateFrame("Frame", nil, parent)
+    weightBox:SetPoint("TOPLEFT", parent, "TOPLEFT", width, y)
+    weightBox:SetSize(720, 40)
+    weightBox.controls = {}
+    local weightBoxTop = y
+
+    local function SmallBtn(p, text, bw)
+        local bt = BG.CreateButton(p)
+        bt:SetSize(bw or 55, 22)
+        bt:SetText(text)
+        local fs = bt:GetFontString()
+        if fs then
+            fs:SetFont(BIAOGE_TEXT_FONT, 13, "OUTLINE")
+        end
+        return bt
+    end
+
+    local function Track(ctrl)
+        tinsert(weightBox.controls, ctrl)
+        return ctrl
+    end
+
+    local function UpdatePrefHeight(boxH)
+        weightBox:SetHeight(boxH)
+        parent.prefContentHeight = math.abs(weightBoxTop) + boxH + 50
+        parent:SetHeight(math.max(parent.prefContentHeight, 400))
+    end
+
+    RefreshWeightsPanel = function()
+        for _, c in ipairs(weightBox.controls) do
+            c:Hide()
+            c:SetParent(nil)
+        end
+        wipe(weightBox.controls)
+
+        local defaults = GetDefaultEP(db)
+        local weights = GetEffectiveEPWeights(db)
+        if not defaults or not weights then
+            local noData = weightBox:CreateFontString()
+            noData:SetFont(BIAOGE_TEXT_FONT, 13, "OUTLINE")
+            noData:SetPoint("TOPLEFT", 0, 0)
+            noData:SetText(L["当前职业暂无属性权重数据。"])
+            Track(noData)
+            UpdatePrefHeight(30)
+            return
+        end
+
+        local statKeys, seen = {}, {}
+        for k, v in pairs(defaults) do
+            tinsert(statKeys, { key = k, value = tonumber(weights[k] or v) or 0 })
+            seen[k] = true
+        end
+        for k, v in pairs(weights) do
+            if not seen[k] then
+                tinsert(statKeys, { key = k, value = tonumber(v) or 0 })
+            end
+        end
+        table.sort(statKeys, function(a, b)
+            if a.value == b.value then
+                return a.key < b.key
+            end
+            return a.value > b.value
+        end)
+
+        local LABEL_W, INPUT_W, BTN_W, LINE_H = 130, 70, 55, 30
+        local yOff = 0
+        for _, statItem in ipairs(statKeys) do
+            local k = statItem.key
+            local defaultValue = defaults[k]
+            local currentValue = weights[k]
+
+            local fsLabel = weightBox:CreateFontString()
+            fsLabel:SetFont(BIAOGE_TEXT_FONT, 13, "OUTLINE")
+            fsLabel:SetPoint("TOPLEFT", 0, yOff)
+            fsLabel:SetWidth(LABEL_W)
+            fsLabel:SetJustifyH("RIGHT")
+            fsLabel:SetText(EPLabel(k) .. "：")
+            Track(fsLabel)
+
+            local editBox = CreateFrame("EditBox", nil, weightBox, BG.editTemplate)
+            editBox:SetSize(INPUT_W, 20)
+            editBox:SetPoint("LEFT", fsLabel, "RIGHT", 8, 0)
+            editBox:SetAutoFocus(false)
+            editBox:SetMaxLetters(10)
+            BG.SetEditBaseClass(editBox)
+            editBox:SetText(FormatWeight(currentValue))
+            Track(editBox)
+
+            local function SaveWeight()
+                local value = tonumber(editBox:GetText())
+                if value then
+                    SetEPWeight(k, value)
+                    editBox:SetText(FormatWeight(value))
+                    RefreshStatus()
+                    BG.GearScore_OnSettingChanged()
+                    BG.PlaySound(1)
+                else
+                    local cur = GetEffectiveEPWeights(db)
+                    editBox:SetText(FormatWeight(cur and cur[k]))
+                end
+                editBox:ClearFocus()
+            end
+
+            local btnConfirm = SmallBtn(weightBox, L["确认"], BTN_W)
+            btnConfirm:SetPoint("LEFT", editBox, "RIGHT", 8, 0)
+            btnConfirm:SetScript("OnClick", SaveWeight)
+            Track(btnConfirm)
+            editBox:SetScript("OnEnterPressed", SaveWeight)
+            editBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+
+            local btnDefault = SmallBtn(weightBox, L["默认"], BTN_W)
+            btnDefault:SetPoint("LEFT", btnConfirm, "RIGHT", 6, 0)
+            btnDefault:SetScript("OnClick", function()
+                ResetEPWeight(k)
+                editBox:SetText(FormatWeight(defaultValue))
+                RefreshStatus()
+                BG.GearScore_OnSettingChanged()
+                BG.PlaySound(1)
+            end)
+            Track(btnDefault)
+
+            yOff = yOff - LINE_H
+        end
+
+        local btnResetAll = SmallBtn(weightBox, L["重置所有为默认"], 140)
+        btnResetAll:SetPoint("TOPLEFT", LABEL_W + 8, yOff)
+        btnResetAll:SetScript("OnClick", function()
+            ResetAllEPWeights()
+            RefreshWeightsPanel()
+            RefreshStatus()
+            BG.GearScore_OnSettingChanged()
+            BG.PlaySound(1)
+        end)
+        Track(btnResetAll)
+        yOff = yOff - 36
+
+        local importTitle = weightBox:CreateFontString()
+        importTitle:SetFont(BIAOGE_TEXT_FONT, 13, "OUTLINE")
+        importTitle:SetPoint("TOPLEFT", 0, yOff)
+        importTitle:SetJustifyH("LEFT")
+        importTitle:SetTextColor(1, 0.82, 0)
+        importTitle:SetText(L["导入WOWSimsCN的EP权重数据"])
+        Track(importTitle)
+        yOff = yOff - 22
+
+        local importBG = CreateFrame("Frame", nil, weightBox, BackdropTemplateMixin and "BackdropTemplate" or nil)
+        importBG:SetPoint("TOPLEFT", 0, yOff)
+        importBG:SetSize(520, 90)
+        if importBG.SetBackdrop then
+            importBG:SetBackdrop({
+                bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
+                edgeFile = "Interface\\ChatFrame\\ChatFrameBackground",
+                edgeSize = 1,
+            })
+            importBG:SetBackdropColor(0, 0, 0, 0.45)
+            importBG:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
+        end
+        Track(importBG)
+
+        local importEdit = CreateFrame("EditBox", nil, importBG)
+        importEdit:SetPoint("TOPLEFT", 6, -6)
+        importEdit:SetPoint("BOTTOMRIGHT", -6, 6)
+        importEdit:SetMultiLine(true)
+        importEdit:SetAutoFocus(false)
+        importEdit:EnableMouse(true)
+        importEdit:SetFont(BIAOGE_TEXT_FONT, 13, "")
+        importEdit:SetJustifyH("LEFT")
+        importEdit:SetJustifyV("TOP")
+        importEdit:SetTextInsets(0, 0, 0, 0)
+        importEdit:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+        importEdit:SetScript("OnMouseDown", function(self) self:SetFocus() end)
+        importEdit:SetScript("OnEditFocusGained", function(self) self:HighlightText() end)
+        importEdit:SetScript("OnEditFocusLost", function(self) self:HighlightText(0, 0) end)
+        Track(importEdit)
+        yOff = yOff - 100
+
+        local importMsg = weightBox:CreateFontString()
+        importMsg:SetFont(BIAOGE_TEXT_FONT, 12, "OUTLINE")
+        importMsg:SetPoint("TOPLEFT", 0, yOff - 28)
+        importMsg:SetJustifyH("LEFT")
+        importMsg:SetText("")
+        Track(importMsg)
+
+        local btnImport = SmallBtn(weightBox, L["导入"], 80)
+        btnImport:SetPoint("TOPLEFT", LABEL_W + 8, yOff)
+        btnImport:SetScript("OnClick", function()
+            local rawText = importEdit:GetText() or ""
+            local imported = ParsePawnEP(rawText, db)
+            local n = 0
+            for k, v in pairs(imported) do
+                SetEPWeight(k, v)
+                n = n + 1
+            end
+            if n > 0 then
+                RefreshWeightsPanel()
+                RefreshStatus()
+                BG.GearScore_OnSettingChanged()
+            else
+                importMsg:SetTextColor(1, 0.35, 0.35)
+                importMsg:SetText(L["没有识别到有效的EP权重"])
+            end
+            BG.PlaySound(1)
+        end)
+        Track(btnImport)
+
+        local btnClear = SmallBtn(weightBox, L["清除"], 80)
+        btnClear:SetPoint("LEFT", btnImport, "RIGHT", 8, 0)
+        btnClear:SetScript("OnClick", function()
+            importEdit:SetText("")
+            importEdit:ClearFocus()
+            importMsg:SetText("")
+            BG.PlaySound(1)
+        end)
+        Track(btnClear)
+
+        local btnRestore = SmallBtn(weightBox, L["恢复默认"], 100)
+        btnRestore:SetPoint("LEFT", btnClear, "RIGHT", 8, 0)
+        btnRestore:SetScript("OnClick", function()
+            ResetAllEPWeights()
+            RefreshWeightsPanel()
+            RefreshStatus()
+            BG.GearScore_OnSettingChanged()
+            BG.PlaySound(1)
+        end)
+        Track(btnRestore)
+
+        yOff = yOff - 48
+        UpdatePrefHeight(math.abs(yOff) + 20)
+    end
+    BG.GearScore_RefreshWeightsPanel = RefreshWeightsPanel
 
     AfterRoleChange(false, true)
     RefreshStatus()
+    RefreshWeightsPanel()
     parent:HookScript("OnShow", function()
+        ApplyGuessIfNeeded()
         BG.GearScore_RefreshPlayer()
         AfterRoleChange(false, true)
     end)
+    if not parent.prefContentHeight then
+        parent.prefContentHeight = math.abs(weightBoxTop) + 400
+    end
+end
+
+function BG.GearScore_PrefTabUI()
+    local mainFrame = BG.GearPrefMainFrame
+    if not mainFrame or mainFrame.prefBuilt then
+        return
+    end
+    mainFrame.prefBuilt = true
+
+    local scroll = CreateFrame("ScrollFrame", nil, mainFrame, "UIPanelScrollFrameTemplate")
+    scroll:SetPoint("TOPLEFT", BG.MainFrame, 20, -35)
+    scroll:SetPoint("BOTTOMRIGHT", BG.MainFrame, -40, 80)
+    scroll:EnableMouse(true)
+    scroll.ScrollBar.scrollStep = BG.scrollStep
+    BG.CreateSrollBarBackdrop(scroll.ScrollBar)
+    BG.HookScrollBarShowOrHide(scroll)
+    mainFrame.scroll = scroll
+
+    local child = CreateFrame("Frame", nil, scroll)
+    child:SetSize(760, 620)
+    child:EnableMouse(true)
+    scroll:SetScrollChild(child)
+    mainFrame.child = child
+
+    BG.GearScore_OptionsUI(child)
+    if child.prefContentHeight and child.prefContentHeight > 100 then
+        child:SetHeight(child.prefContentHeight)
+    end
 end
