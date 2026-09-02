@@ -1,5 +1,5 @@
 ## Interface: 11508, 11509, 20506, 30405, 38002, 40402, 50503, 50504, 50505, 120005, 120007, 120100
-## Title: <BGLite> |cff00BFFFBGLite纯净版|r
+## Title: <bg次bis版> |cff00BFFFbg次bis版纯净版|r
 ## Notes: /bglite or /gbg
 ## IconTexture: Interface\AddOns\BGLite\Media\icon\icon.tga
 ## Author: CQZS (Lite)

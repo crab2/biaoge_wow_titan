@@ -38,7 +38,6 @@ local CR_ARMOR_PENETRATION = _G.CR_ARMOR_PENETRATION or 25
 
 local BIAS1 = 1.45
 local BIAS2 = 1.18
-local WASTE = 0.05
 local ILVL_W = 0.15
 local SOCKET_GEM = 16
 
@@ -54,8 +53,11 @@ local DEFAULT_CAPS = {
 
 local STAT_KEYS = {
     STR = true, AGI = true, STA = true, INT = true, SPI = true,
-    AP = true, SP = true, HEAL = true, HIT = true, HIT_SPELL = true,
-    CRIT = true, HASTE = true, ARPEN = true, EXPERTISE = true, DEFENSE = true,
+    AP = true, RAP = true, SP = true, HEAL = true,
+    HIT = true, HIT_PHYSICAL = true, HIT_SPELL = true,
+    CRIT = true, CRIT_PHYSICAL = true, CRIT_SPELL = true,
+    HASTE = true, HASTE_PHYSICAL = true, HASTE_SPELL = true,
+    ARPEN = true, SPELLPEN = true, EXPERTISE = true, DEFENSE = true,
     DODGE = true, PARRY = true, BLOCK = true, BLOCKVALUE = true,
     ARMOR = true, DPS = true, MP5 = true, SOCKET = true,
 }
@@ -77,14 +79,14 @@ local WEIGHTS = {
     },
     CASTER = {
         STR = 0, AGI = 0, STA = 0.05, INT = 0.55, SPI = 0.10,
-        AP = 0, SP = 1.00, HEAL = 0.15, HIT = 1.60, HIT_SPELL = 1.60,
+        AP = 0, SP = 1.00, HEAL = 0, HIT = 1.60, HIT_SPELL = 1.60,
         CRIT = 0.70, HASTE = 0.70, ARPEN = 0, EXPERTISE = 0, DEFENSE = 0,
         DODGE = 0, PARRY = 0, BLOCK = 0, BLOCKVALUE = 0,
         ARMOR = 0, DPS = 0, MP5 = 0.05, SOCKET = 1,
     },
     HEAL = {
         STR = 0, AGI = 0, STA = 0.08, INT = 0.70, SPI = 0.90,
-        AP = 0, SP = 1.00, HEAL = 1.00, HIT = 0.05, HIT_SPELL = 0.05,
+        AP = 0, SP = 1.00, HEAL = 1.00, HIT = 0, HIT_SPELL = 0,
         CRIT = 0.45, HASTE = 0.75, ARPEN = 0, EXPERTISE = 0, DEFENSE = 0,
         DODGE = 0, PARRY = 0, BLOCK = 0, BLOCKVALUE = 0,
         ARMOR = 0, DPS = 0, MP5 = 0.50, SOCKET = 1,
@@ -473,28 +475,28 @@ local STAT_MAP = {
     ITEM_MOD_SPIRIT_SHORT = "SPI",
     ITEM_MOD_HIT_RATING = "HIT",
     ITEM_MOD_HIT_RATING_SHORT = "HIT",
-    ITEM_MOD_HIT_MELEE_RATING = "HIT",
-    ITEM_MOD_HIT_MELEE_RATING_SHORT = "HIT",
-    ITEM_MOD_HIT_RANGED_RATING = "HIT",
-    ITEM_MOD_HIT_RANGED_RATING_SHORT = "HIT",
+    ITEM_MOD_HIT_MELEE_RATING = "HIT_PHYSICAL",
+    ITEM_MOD_HIT_MELEE_RATING_SHORT = "HIT_PHYSICAL",
+    ITEM_MOD_HIT_RANGED_RATING = "HIT_PHYSICAL",
+    ITEM_MOD_HIT_RANGED_RATING_SHORT = "HIT_PHYSICAL",
     ITEM_MOD_HIT_SPELL_RATING = "HIT_SPELL",
     ITEM_MOD_HIT_SPELL_RATING_SHORT = "HIT_SPELL",
     ITEM_MOD_CRIT_RATING = "CRIT",
     ITEM_MOD_CRIT_RATING_SHORT = "CRIT",
-    ITEM_MOD_CRIT_MELEE_RATING = "CRIT",
-    ITEM_MOD_CRIT_MELEE_RATING_SHORT = "CRIT",
-    ITEM_MOD_CRIT_RANGED_RATING = "CRIT",
-    ITEM_MOD_CRIT_RANGED_RATING_SHORT = "CRIT",
-    ITEM_MOD_CRIT_SPELL_RATING = "CRIT",
-    ITEM_MOD_CRIT_SPELL_RATING_SHORT = "CRIT",
+    ITEM_MOD_CRIT_MELEE_RATING = "CRIT_PHYSICAL",
+    ITEM_MOD_CRIT_MELEE_RATING_SHORT = "CRIT_PHYSICAL",
+    ITEM_MOD_CRIT_RANGED_RATING = "CRIT_PHYSICAL",
+    ITEM_MOD_CRIT_RANGED_RATING_SHORT = "CRIT_PHYSICAL",
+    ITEM_MOD_CRIT_SPELL_RATING = "CRIT_SPELL",
+    ITEM_MOD_CRIT_SPELL_RATING_SHORT = "CRIT_SPELL",
     ITEM_MOD_HASTE_RATING = "HASTE",
     ITEM_MOD_HASTE_RATING_SHORT = "HASTE",
-    ITEM_MOD_HASTE_MELEE_RATING = "HASTE",
-    ITEM_MOD_HASTE_MELEE_RATING_SHORT = "HASTE",
-    ITEM_MOD_HASTE_RANGED_RATING = "HASTE",
-    ITEM_MOD_HASTE_RANGED_RATING_SHORT = "HASTE",
-    ITEM_MOD_HASTE_SPELL_RATING = "HASTE",
-    ITEM_MOD_HASTE_SPELL_RATING_SHORT = "HASTE",
+    ITEM_MOD_HASTE_MELEE_RATING = "HASTE_PHYSICAL",
+    ITEM_MOD_HASTE_MELEE_RATING_SHORT = "HASTE_PHYSICAL",
+    ITEM_MOD_HASTE_RANGED_RATING = "HASTE_PHYSICAL",
+    ITEM_MOD_HASTE_RANGED_RATING_SHORT = "HASTE_PHYSICAL",
+    ITEM_MOD_HASTE_SPELL_RATING = "HASTE_SPELL",
+    ITEM_MOD_HASTE_SPELL_RATING_SHORT = "HASTE_SPELL",
     ITEM_MOD_EXPERTISE_RATING = "EXPERTISE",
     ITEM_MOD_EXPERTISE_RATING_SHORT = "EXPERTISE",
     ITEM_MOD_DEFENSE_SKILL_RATING = "DEFENSE",
@@ -509,6 +511,8 @@ local STAT_MAP = {
     ITEM_MOD_BLOCK_VALUE_SHORT = "BLOCKVALUE",
     ITEM_MOD_ARMOR_PENETRATION_RATING = "ARPEN",
     ITEM_MOD_ARMOR_PENETRATION_RATING_SHORT = "ARPEN",
+    ITEM_MOD_SPELL_PENETRATION = "SPELLPEN",
+    ITEM_MOD_SPELL_PENETRATION_SHORT = "SPELLPEN",
     ITEM_MOD_SPELL_POWER = "SP",
     ITEM_MOD_SPELL_POWER_SHORT = "SP",
     ITEM_MOD_SPELL_DAMAGE_DONE = "SP",
@@ -517,8 +521,8 @@ local STAT_MAP = {
     ITEM_MOD_SPELL_HEALING_DONE_SHORT = "HEAL",
     ITEM_MOD_ATTACK_POWER = "AP",
     ITEM_MOD_ATTACK_POWER_SHORT = "AP",
-    ITEM_MOD_RANGED_ATTACK_POWER = "AP",
-    ITEM_MOD_RANGED_ATTACK_POWER_SHORT = "AP",
+    ITEM_MOD_RANGED_ATTACK_POWER = "RAP",
+    ITEM_MOD_RANGED_ATTACK_POWER_SHORT = "RAP",
     ITEM_MOD_FERAL_ATTACK_POWER = "FERAL_AP",
     ITEM_MOD_FERAL_ATTACK_POWER_SHORT = "FERAL_AP",
     ITEM_MOD_POWER_REGEN0 = "MP5",
@@ -1239,6 +1243,8 @@ local function NormalizeProfile(db)
 end
 
 local function GetDB()
+    -- This profile is local-only: it drives suggestions for this character
+    -- and is never included in raid addon messages or ranking data.
     BiaoGe.GearScore = BiaoGe.GearScore or {}
     BiaoGe.GearScore[realmID] = BiaoGe.GearScore[realmID] or {}
     local db = BiaoGe.GearScore[realmID][player]
@@ -1251,7 +1257,11 @@ local function GetDB()
             specType = specType,
             talentTab = tab,
             isMT = isMT and true or false,
-            dualWieldHit = GetClassFile() == "ROGUE",
+            -- iTank's default is the physical/yellow hit cap (8%).
+            -- The 27% dual-wield cap is opt-in because it is only relevant
+            -- when the player explicitly wants to value white swings.
+            dualWieldHit = false,
+            dualWieldHitSet = false,
             spellHit17 = false,
             bias1 = bias1,
             bias2 = bias2,
@@ -1260,6 +1270,13 @@ local function GetDB()
             roleLocked = false,
         }
         BiaoGe.GearScore[realmID][player] = db
+    end
+    -- Profiles created before the dual-wield cap was made opt-in inherited
+    -- `true` for every rogue. Treat that value as the old default once, while
+    -- preserving the setting after the user explicitly changes the checkbox.
+    if db.dualWieldHitSet == nil then
+        db.dualWieldHit = false
+        db.dualWieldHitSet = false
     end
     if not db.talentTab then
         db.talentTab = DetectTalentTab()
@@ -1491,6 +1508,13 @@ local function EPLabel(key)
         rangedHitRating = L["远程命中等级"],
         rangedCritChance = L["远程暴击"],
         rangedHasteRating = L["远程急速等级"],
+        AP = L["攻强"], RAP = L["远程攻强"], SP = L["法伤"], HEAL = L["治疗强度"],
+        HIT = L["命中"], HIT_PHYSICAL = L["物理命中等级"], HIT_SPELL = L["法术命中等级"],
+        CRIT = L["暴击"], CRIT_PHYSICAL = L["物理暴击等级"], CRIT_SPELL = L["法术暴击等级"],
+        HASTE = L["急速"], HASTE_PHYSICAL = L["物理急速等级"], HASTE_SPELL = L["法术急速等级"],
+        ARPEN = L["破甲等级"], SPELLPEN = L["法术穿透"], EXPERTISE = L["精准等级"],
+        DEFENSE = L["防御"], DODGE = L["躲闪"], PARRY = L["招架"],
+        BLOCK = L["格挡"], BLOCKVALUE = L["格挡值"], DPS = L["武器DPS"],
         dodge = L["躲闪"],
         parry = L["招架"],
         block = L["格挡"],
@@ -1710,6 +1734,7 @@ function BG.GearScore_DefaultCaps()
     }
 end
 
+local ApplyProfileWeightRules
 local function BuildWeights(db)
     db = db or GetDB()
     local class = GetClassFile()
@@ -1770,6 +1795,9 @@ local function BuildWeights(db)
         end
     end
     w._primary = primary
+    if ApplyProfileWeightRules then
+        ApplyProfileWeightRules(w, db)
+    end
     return w
 end
 
@@ -1804,26 +1832,41 @@ local function MapStatKey(raw)
             return nil
         end
     end
+    local found
+    local family = {
+        HIT = "HIT", HIT_PHYSICAL = "HIT", HIT_SPELL = "HIT",
+        CRIT = "CRIT", CRIT_PHYSICAL = "CRIT", CRIT_SPELL = "CRIT",
+        HASTE = "HASTE", HASTE_PHYSICAL = "HASTE", HASTE_SPELL = "HASTE",
+        AP = "AP", RAP = "AP",
+    }
     for tokenName, key in pairs(STAT_MAP) do
         local loc = _G[tokenName]
         if loc and loc == raw then
-            return key
+            if not found then
+                found = key
+            elseif found ~= key then
+                if family[found] and family[found] == family[key] then
+                    return family[key]
+                end
+                return nil
+            end
         end
     end
+    return found
 end
 
 local function ParseGetItemStats(link)
     local stats = {}
-    if not GetItemStats then return stats end
+    if not GetItemStats then return stats, false end
     local ok, raw = pcall(GetItemStats, link)
-    if not ok or type(raw) ~= "table" then return stats end
+    if not ok or type(raw) ~= "table" then return stats, false end
     for k, v in pairs(raw) do
         local key = MapStatKey(k)
         if key then
             AddStat(stats, key, v)
         end
     end
-    return stats
+    return stats, true
 end
 
 local tooltipMatchers
@@ -1911,9 +1954,17 @@ local STAT_GLOBAL_ROWS = {
     { "INT", "ITEM_MOD_INTELLECT" },
     { "SPI", "ITEM_MOD_SPIRIT" },
     { "HIT", "ITEM_MOD_HIT_RATING" },
+    { "HIT_PHYSICAL", "ITEM_MOD_HIT_MELEE_RATING" },
+    { "HIT_PHYSICAL", "ITEM_MOD_HIT_RANGED_RATING" },
     { "HIT_SPELL", "ITEM_MOD_HIT_SPELL_RATING" },
     { "CRIT", "ITEM_MOD_CRIT_RATING" },
+    { "CRIT_PHYSICAL", "ITEM_MOD_CRIT_MELEE_RATING" },
+    { "CRIT_PHYSICAL", "ITEM_MOD_CRIT_RANGED_RATING" },
+    { "CRIT_SPELL", "ITEM_MOD_CRIT_SPELL_RATING" },
     { "HASTE", "ITEM_MOD_HASTE_RATING" },
+    { "HASTE_PHYSICAL", "ITEM_MOD_HASTE_MELEE_RATING" },
+    { "HASTE_PHYSICAL", "ITEM_MOD_HASTE_RANGED_RATING" },
+    { "HASTE_SPELL", "ITEM_MOD_HASTE_SPELL_RATING" },
     { "EXPERTISE", "ITEM_MOD_EXPERTISE_RATING" },
     { "DEFENSE", "ITEM_MOD_DEFENSE_SKILL_RATING" },
     { "DODGE", "ITEM_MOD_DODGE_RATING" },
@@ -1921,11 +1972,12 @@ local STAT_GLOBAL_ROWS = {
     { "BLOCK", "ITEM_MOD_BLOCK_RATING" },
     { "BLOCKVALUE", "ITEM_MOD_BLOCK_VALUE" },
     { "ARPEN", "ITEM_MOD_ARMOR_PENETRATION_RATING" },
+    { "SPELLPEN", "ITEM_MOD_SPELL_PENETRATION" },
     { "SP", "ITEM_MOD_SPELL_POWER" },
     { "SP", "ITEM_MOD_SPELL_DAMAGE_DONE" },
     { "HEAL", "ITEM_MOD_SPELL_HEALING_DONE" },
     { "AP", "ITEM_MOD_ATTACK_POWER" },
-    { "AP", "ITEM_MOD_RANGED_ATTACK_POWER" },
+    { "RAP", "ITEM_MOD_RANGED_ATTACK_POWER" },
     { "FERAL_AP", "ITEM_MOD_FERAL_ATTACK_POWER" },
     { "MP5", "ITEM_MOD_MANA_REGENERATION" },
     { "MP5", "ITEM_MOD_POWER_REGEN0" },
@@ -1934,12 +1986,19 @@ local STAT_GLOBAL_ROWS = {
 -- Longer stems first so 护甲穿透 is not eaten by 护甲, 远程攻击强度 not by 攻击强度.
 local EXTRA_STEMS = {
     { "ARPEN", { "护甲穿透等级", "护甲穿透", "破甲等级", "破甲", "Armor Penetration" } },
+    { "SPELLPEN", { "法术穿透等级", "法术穿透", "Spell Penetration" } },
     { "HIT_SPELL", { "法术命中等级", "法术命中", "Spell Hit" } },
-    { "AP", { "远程攻击强度", "攻击强度", "Attack Power" } },
+    { "HIT_PHYSICAL", { "物理命中等级", "近战命中等级", "远程命中等级", "Melee Hit", "Ranged Hit" } },
+    { "RAP", { "远程攻击强度", "Ranged Attack Power" } },
+    { "AP", { "攻击强度", "Attack Power" } },
     { "SP", { "法术强度", "法术伤害", "Spell Power" } },
     { "HEAL", { "治疗效果", "治疗强度" } },
     { "HIT", { "命中等级", "命中" } },
+    { "CRIT_SPELL", { "法术暴击等级", "法术爆击等级", "Spell Crit Rating", "Spell Critical Strike" } },
+    { "CRIT_PHYSICAL", { "物理暴击等级", "近战暴击等级", "远程暴击等级", "Melee Crit", "Ranged Crit" } },
     { "CRIT", { "暴击等级", "爆击等级", "暴击", "爆击", "Crit Rating", "Critical Strike" } },
+    { "HASTE_SPELL", { "法术急速等级", "Spell Haste" } },
+    { "HASTE_PHYSICAL", { "物理急速等级", "近战急速等级", "远程急速等级", "Melee Haste", "Ranged Haste" } },
     { "HASTE", { "急速等级", "急速", "Haste Rating" } },
     { "EXPERTISE", { "精准等级", "精准", "Expertise" } },
     { "DEFENSE", { "防御等级", "Defense Rating" } },
@@ -2022,9 +2081,11 @@ end
 local function ParseTooltipStats(item)
     if not tooltipMatchers then BuildTooltipMatchers() end
     local stats = {}
-    if not BG.Tooltip_SetItemByID then return stats end
-    BG.Tooltip_SetItemByID(item)
-    if not BiaoGeTooltip then return stats end
+    if not BG.Tooltip_SetItemByID then return stats, false end
+    local ok = pcall(BG.Tooltip_SetItemByID, item)
+    if not ok or not BiaoGeTooltip or (BiaoGeTooltip:NumLines() or 0) <= 1 then
+        return stats, false
+    end
     for i = 2, BiaoGeTooltip:NumLines() do
         local fs = _G["BiaoGeTooltipTextLeft" .. i]
         local text = fs and fs:GetText()
@@ -2084,7 +2145,7 @@ local function ParseTooltipStats(item)
             end
         end
     end
-    return stats
+    return stats, true
 end
 
 -- Fill gaps without double-counting: keep the larger value per stat.
@@ -2099,6 +2160,46 @@ local function MergeFill(dst, src)
         end
     end
     return dst
+end
+
+-- Titan can expose the same rating as a generic GetItemStats key and a
+-- school-specific tooltip line. Prefer the specific source instead of scoring
+-- both copies.
+local function PreferSpecificSchool(dst, src)
+    local families = {
+        { "HIT", { "HIT_PHYSICAL", "HIT_SPELL" } },
+        { "CRIT", { "CRIT_PHYSICAL", "CRIT_SPELL" } },
+        { "HASTE", { "HASTE_PHYSICAL", "HASTE_SPELL" } },
+        { "AP", { "RAP" } },
+    }
+    for _, family in ipairs(families) do
+        local generic, specifics = family[1], family[2]
+        local dstSpecificTotal, srcSpecificTotal = 0, 0
+        for _, specific in ipairs(specifics) do
+            dstSpecificTotal = dstSpecificTotal + (tonumber(dst[specific]) or 0)
+            srcSpecificTotal = srcSpecificTotal + (tonumber(src[specific]) or 0)
+        end
+        if tonumber(dst[generic]) and srcSpecificTotal > 0
+            and math.abs(tonumber(dst[generic]) - srcSpecificTotal) < 0.01 then
+            dst[generic] = nil
+        end
+        if tonumber(src[generic]) and dstSpecificTotal > 0
+            and math.abs(tonumber(src[generic]) - dstSpecificTotal) < 0.01 then
+            src[generic] = nil
+        end
+        for _, specific in ipairs(specifics) do
+            local a = tonumber(dst[generic])
+            local b = tonumber(src[specific])
+            if a and b and math.abs(a - b) < 0.01 then
+                dst[generic] = nil
+            end
+            a = tonumber(src[generic])
+            b = tonumber(dst[specific])
+            if a and b and math.abs(a - b) < 0.01 then
+                src[generic] = nil
+            end
+        end
+    end
 end
 
 -- Tank white armor (hundreds) must not stay mapped as intellect/spirit.
@@ -2140,19 +2241,35 @@ local function FinalizeStats(stats)
     return SanitizeTankWhiteStats(stats)
 end
 
+local function ItemStatCacheKey(itemID, link)
+    if type(link) == "string" then
+        local itemString = link:match("item:[^|%s]+")
+        if itemString then
+            return itemString
+        end
+    end
+    return itemID and ("item:" .. tostring(itemID)) or nil
+end
+
 local function ParseItemStats(itemID, link)
     if not itemID then return {} end
-    if itemStatCache[itemID] then
-        return itemStatCache[itemID]
+    local cacheKey = ItemStatCacheKey(itemID, link)
+    if cacheKey and itemStatCache[cacheKey] then
+        return itemStatCache[cacheKey], true
     end
     -- GetItemStats often returns only white primaries on Titan. Always scan
     -- the tooltip for green Equip: lines (hit/crit/haste/arp/ap/sp).
     local stats = ParseGetItemStats(link or itemID)
-    local extra = ParseTooltipStats(link or itemID)
+    local extra, tooltipReady = ParseTooltipStats(link or itemID)
+    PreferSpecificSchool(stats, extra)
     MergeFill(stats, extra)
     FinalizeStats(stats)
-    itemStatCache[itemID] = stats
-    return stats
+    -- Titan frequently returns white stats before green tooltip lines exist.
+    -- Do not make that incomplete result permanent.
+    if tooltipReady and cacheKey then
+        itemStatCache[cacheKey] = stats
+    end
+    return stats, tooltipReady
 end
 
 local function ItemHasProc(itemID, link)
@@ -2260,6 +2377,18 @@ local function ArmorOK(class, typeID, subclassID, equipLoc)
     return subclassID == want
 end
 
+local DUAL_WIELD_CLASS = {
+    WARRIOR = true,
+    HUNTER = true,
+    ROGUE = true,
+    DEATHKNIGHT = true,
+}
+
+local function CanUseOffHandWeapon(class, specType)
+    if DUAL_WIELD_CLASS[class] then return true end
+    return class == "SHAMAN" and specType == "MELEE"
+end
+
 local function WeaponOK(class, typeID, subclassID, equipLoc, role, specType)
     if typeID ~= 2 then
         if equipLoc == "INVTYPE_HOLDABLE" then
@@ -2272,43 +2401,163 @@ local function WeaponOK(class, typeID, subclassID, equipLoc, role, specType)
     end
     local allow = CLASS_WEAPON[class]
     if not allow then return true end
+    if equipLoc == "INVTYPE_WEAPONOFFHAND" and not CanUseOffHandWeapon(class, specType) then
+        return false
+    end
     return allow[subclassID] and true or false
 end
 
-local CASTER_MARK = { "INT", "SPI", "SP", "HEAL", "HIT_SPELL", "MP5" }
-local TANK_MARK = { "DEFENSE", "DODGE", "PARRY", "BLOCK", "BLOCKVALUE" }
-local PHYS_MARK = { "STR", "AGI", "AP", "EXPERTISE", "ARPEN", "DPS" }
+local TANK_ONLY_STATS = {
+    DEFENSE = true, DODGE = true, PARRY = true, BLOCK = true, BLOCKVALUE = true,
+}
 
-local function StatPositive(stats, keys)
-    if not stats then return false end
-    for i = 1, #keys do
-        if (tonumber(stats[keys[i]]) or 0) > 0 then
-            return true
-        end
-    end
-    return false
+local PHYSICAL_ONLY_STATS = {
+    AP = true, RAP = true, HIT_PHYSICAL = true, CRIT_PHYSICAL = true,
+    HASTE_PHYSICAL = true, ARPEN = true, EXPERTISE = true, DPS = true,
+}
+
+local SPELL_ONLY_STATS = {
+    SP = true, HEAL = true, HIT_SPELL = true, CRIT_SPELL = true,
+    HASTE_SPELL = true, SPELLPEN = true,
+}
+
+local function IsPhysicalProfile(db)
+    return db.role == "TANK" or (db.role ~= "HEAL" and (db.specType == "MELEE" or db.specType == "RANGED"))
 end
 
--- Rings/necks ignore armor type, so a tank ring can still look wearable to a warlock.
-local function WrongStatSchool(stats, db)
-    if not stats or not db then return false end
-    local casterish = StatPositive(stats, CASTER_MARK)
-    local tankish = StatPositive(stats, TANK_MARK)
-    local physish = StatPositive(stats, PHYS_MARK)
-    if db.role == "HEAL" or db.specType == "CASTER" then
-        return (not casterish) and (tankish or physish)
-    end
-    if db.role == "TANK" then
-        return casterish and (not tankish) and (not physish)
-    end
-    -- 近战/远程：纯坦克回避件，或纯法系件（智力戒指对战士等）
-    if tankish and (not physish) and (not casterish) then
+local function IsCasterProfile(db)
+    return db.role == "HEAL" or db.specType == "CASTER"
+end
+
+local function StatAllowed(key, db)
+    if not key or not db then return false end
+    local class = GetClassFile()
+    if TANK_ONLY_STATS[key] then
+        if db.role ~= "TANK" then return false end
+        if class == "DRUID" and (key == "DEFENSE" or key == "PARRY" or key == "BLOCK" or key == "BLOCKVALUE") then
+            return false
+        end
+        if class == "DEATHKNIGHT" and (key == "BLOCK" or key == "BLOCKVALUE") then
+            return false
+        end
         return true
     end
-    if casterish and (not physish) and (not tankish) then
+    if PHYSICAL_ONLY_STATS[key] then
+        if not IsPhysicalProfile(db) then return false end
+        if key == "RAP" then
+            return db.specType == "RANGED"
+        end
+        if key == "EXPERTISE" then
+            return db.role == "TANK" or db.specType == "MELEE"
+        end
         return true
     end
-    return false
+    if SPELL_ONLY_STATS[key] then
+        if not IsCasterProfile(db) then return false end
+        if key == "HEAL" then
+            return db.role == "HEAL"
+        end
+        if key == "HIT_SPELL" or key == "SPELLPEN" then
+            return db.role ~= "HEAL" and db.specType == "CASTER"
+        end
+        return true
+    end
+    if key == "HIT" then
+        return db.role ~= "HEAL"
+    end
+    return true
+end
+
+ApplyProfileWeightRules = function(w, db)
+    for _, key in ipairs({
+        "AP", "SP", "HEAL", "HIT", "CRIT", "HASTE", "ARPEN", "EXPERTISE",
+        "DEFENSE", "DODGE", "PARRY", "BLOCK", "BLOCKVALUE", "DPS",
+    }) do
+        if not StatAllowed(key, db) then
+            w[key] = 0
+        end
+    end
+    if db.role == "HEAL" then
+        w.HIT = 0
+        w.EXPERTISE = 0
+        w.ARPEN = 0
+    elseif IsCasterProfile(db) then
+        w.AP = 0
+        w.EXPERTISE = 0
+        w.ARPEN = 0
+        w.DPS = 0
+    elseif IsPhysicalProfile(db) then
+        w.SP = 0
+        w.HEAL = 0
+    end
+end
+
+local function ScoreKeyForStat(key, db)
+    if not StatAllowed(key, db) then return nil end
+    if key == "RAP" then return "AP" end
+    if key == "HIT_PHYSICAL" then return "HIT" end
+    if key == "CRIT_PHYSICAL" or key == "CRIT_SPELL" then return "CRIT" end
+    if key == "HASTE_PHYSICAL" or key == "HASTE_SPELL" then return "HASTE" end
+    return key
+end
+
+local function EPWeightAllowed(epKey, db)
+    local specific = {
+        rap = "RAP",
+        spellHitRating = "HIT_SPELL",
+        spellCritRating = "CRIT_SPELL",
+        spellHasteRating = "HASTE_SPELL",
+        rangedHitRating = "HIT_PHYSICAL",
+        rangedCritChance = "CRIT_PHYSICAL",
+        rangedHasteRating = "HASTE_PHYSICAL",
+    }
+    local statKey = specific[epKey] or EP_TO_SCORE[epKey]
+    return not statKey or StatAllowed(statKey, db)
+end
+
+local NEUTRAL_USEFUL_STATS = {
+    STA = true,
+    ARMOR = true,
+    HIT = true,
+    CRIT = true,
+    HASTE = true,
+    SOCKET = true,
+}
+
+local function HasUsefulNativeStat(stats, w, db)
+    local hasUseful, hasSchoolUseful, hasKnown = false, false, false
+    local forbidden = {}
+    for key, value in pairs(stats or {}) do
+        value = tonumber(value) or 0
+        if value > 0 and STAT_KEYS[key] and key ~= "SOCKET" then
+            hasKnown = true
+            local scoreKey = ScoreKeyForStat(key, db)
+            if not scoreKey then
+                tinsert(forbidden, key)
+            elseif (tonumber(w[scoreKey]) or 0) > 0 then
+                -- Stamina and base armor alone must not make a wrong-school DPS/heal item valid.
+                if db.role == "TANK" or (key ~= "STA" and key ~= "ARMOR") then
+                    hasUseful = true
+                    if not NEUTRAL_USEFUL_STATS[key] then
+                        hasSchoolUseful = true
+                    end
+                end
+            end
+        end
+    end
+    -- Generic hit/crit/haste can benefit multiple schools, but must not rescue
+    -- an item that otherwise advertises only forbidden physical/spell stats.
+    if #forbidden > 0 and not hasSchoolUseful then
+        hasUseful = false
+    end
+    return hasUseful, forbidden, hasKnown
+end
+
+-- Rings/necks/trinkets have no armor restriction. Require at least one native
+-- positive-weight stat and never let an explicitly forbidden school add score.
+local function WrongStatSchool(stats, db, w)
+    local hasUseful, forbidden, hasKnown = HasUsefulNativeStat(stats, w, db)
+    return hasKnown and not hasUseful, forbidden, hasUseful
 end
 
 local function CappedScore(amount, current, cap, highW)
@@ -2321,7 +2570,7 @@ local function CappedScore(amount, current, cap, highW)
     local room = math.max(0, cap - current)
     local useful = math.min(amount, room)
     local waste = amount - useful
-    return useful * highW + waste * highW * WASTE, useful, waste
+    return useful * highW, useful, waste
 end
 
 local function AddPart(parts, key, amount)
@@ -2333,14 +2582,24 @@ local function AddPart(parts, key, amount)
     parts.score = parts.score + amount
 end
 
-local function ScoreStats(stats, w, db, ilvl, notes)
+local function StatAmount(stats, keys)
+    local amount = 0
+    for i = 1, #keys do
+        amount = amount + (tonumber(stats and stats[keys[i]]) or 0)
+    end
+    return amount
+end
+
+local function ScoreStats(stats, w, db, ilvl, notes, ratings, includeBudget)
     db = db or GetDB()
     notes = notes or {}
     local caps = GetCaps(db)
-    local r = playerSnap.ratings
+    local r = ratings or playerSnap.ratings
     local parts = { score = 0, white = 0, green = 0 }
     local hitAmt = 0
-    if db.role == "HEAL" or db.specType == "CASTER" then
+    if db.role == "HEAL" then
+        -- Healers do not use any hit stat.
+    elseif db.specType == "CASTER" then
         hitAmt = (stats.HIT or 0) + (stats.HIT_SPELL or 0)
         local s, useful, waste = CappedScore(hitAmt, r.hitSpell, caps.hitSpell, w.HIT)
         AddPart(parts, "HIT", s)
@@ -2351,7 +2610,8 @@ local function ScoreStats(stats, w, db, ilvl, notes)
         end
     else
         local hitCur = db.specType == "RANGED" and r.hitRanged or r.hitMelee
-        local s, useful, waste = CappedScore(stats.HIT, hitCur, caps.hitMelee, w.HIT)
+        hitAmt = StatAmount(stats, { "HIT", "HIT_PHYSICAL" })
+        local s, useful, waste = CappedScore(hitAmt, hitCur, caps.hitMelee, w.HIT)
         AddPart(parts, "HIT", s)
         if waste and waste > 0 and useful == 0 then
             tinsert(notes, "hitcap")
@@ -2359,7 +2619,7 @@ local function ScoreStats(stats, w, db, ilvl, notes)
             tinsert(notes, "hitpartial")
         end
     end
-    if db.specType == "MELEE" or db.role == "TANK" then
+    if (db.specType == "MELEE" or db.role == "TANK") and StatAllowed("EXPERTISE", db) then
         local s, useful, waste = CappedScore(stats.EXPERTISE, r.expertise, caps.expertise, w.EXPERTISE)
         AddPart(parts, "EXPERTISE", s)
         if waste and waste > 0 and useful == 0 then
@@ -2368,7 +2628,7 @@ local function ScoreStats(stats, w, db, ilvl, notes)
             tinsert(notes, "exppartial")
         end
     end
-    if db.role == "TANK" and db.isMT then
+    if db.role == "TANK" and db.isMT and StatAllowed("DEFENSE", db) then
         local s, useful, waste = CappedScore(stats.DEFENSE, r.defense, caps.defense, w.DEFENSE)
         AddPart(parts, "DEFENSE", s)
         if waste and waste > 0 and useful == 0 then
@@ -2376,7 +2636,7 @@ local function ScoreStats(stats, w, db, ilvl, notes)
         elseif waste and waste > 0 then
             tinsert(notes, "defpartial")
         end
-    elseif stats.DEFENSE then
+    elseif stats.DEFENSE and StatAllowed("DEFENSE", db) then
         AddPart(parts, "DEFENSE", (stats.DEFENSE or 0) * (w.DEFENSE or 0))
     end
     if (db.specType == "MELEE" or db.specType == "RANGED" or db.role == "TANK") and (w.ARPEN or 0) > 0 then
@@ -2389,30 +2649,29 @@ local function ScoreStats(stats, w, db, ilvl, notes)
         end
     end
 
-    local skip = { HIT = true, HIT_SPELL = true, EXPERTISE = true, DEFENSE = true, SOCKET = true }
+    local skip = {
+        HIT = true, HIT_PHYSICAL = true, HIT_SPELL = true,
+        EXPERTISE = true, DEFENSE = true, SOCKET = true,
+    }
     if (db.specType == "MELEE" or db.specType == "RANGED" or db.role == "TANK") and (w.ARPEN or 0) > 0 then
         skip.ARPEN = true
     end
     for k, v in pairs(stats) do
         if not skip[k] and STAT_KEYS[k] then
-            AddPart(parts, k, v * (w[k] or 0))
+            local scoreKey = ScoreKeyForStat(k, db)
+            if scoreKey then
+                AddPart(parts, scoreKey, v * (w[scoreKey] or 0))
+            end
         end
     end
-    if stats.SOCKET and stats.SOCKET > 0 then
+    if includeBudget ~= false and stats.SOCKET and stats.SOCKET > 0 then
         local p = w[w._primary or "STR"] or 1
         AddPart(parts, "SOCKET", stats.SOCKET * SOCKET_GEM * p)
     end
-    if ilvl then
+    if includeBudget ~= false and ilvl then
         parts.score = parts.score + ilvl * ILVL_W
     end
     return parts.score, parts.white, parts.green
-end
-
-local function ScoreLink(link, itemID, w, db, notes)
-    local name, itemLink, quality, ilvl, _, _, _, _, equipLoc, _, _, typeID = GetItemInfo(link or itemID)
-    local stats = ParseItemStats(itemID, itemLink or link)
-    local score, white, green = ScoreStats(stats, w, db, ilvl, notes or {})
-    return score, stats, ilvl, equipLoc, typeID, itemLink or link, white, green
 end
 
 function BG.GearScore_RefreshPlayer()
@@ -2438,10 +2697,12 @@ function BG.GearScore_RefreshPlayer()
         local id = GetInventoryItemID("player", slot)
         if link and id then
             local _, _, _, ilvl, _, _, _, _, equipLoc = GetItemInfo(link)
+            local stats, ready = ParseItemStats(id, link)
             playerSnap.equipped[slot] = {
                 itemID = id,
                 link = link,
-                stats = ParseItemStats(id, link),
+                stats = stats,
+                ready = ready and ilvl ~= nil and equipLoc and equipLoc ~= "",
                 ilvl = ilvl,
                 equipLoc = equipLoc,
             }
@@ -2453,54 +2714,222 @@ function BG.GearScore_GetSnapshot()
     return playerSnap
 end
 
-local function ScoreSlot(slot, w, db)
-    local eq = playerSnap.equipped[slot]
-    if not eq then return 0, nil end
-    return ScoreStats(eq.stats, w, db, eq.ilvl, {}), eq.link
+local function CloneRatings(src)
+    local out = {}
+    for k, v in pairs(src or {}) do
+        out[k] = tonumber(v) or 0
+    end
+    return out
 end
 
-local function CompareScore(equipLoc, w, db, itemID)
+local function RatingAmount(stats, ratingKey)
+    if ratingKey == "hitSpell" then
+        return StatAmount(stats, { "HIT", "HIT_SPELL" })
+    elseif ratingKey == "hitMelee" or ratingKey == "hitRanged" then
+        return StatAmount(stats, { "HIT", "HIT_PHYSICAL" })
+    elseif ratingKey == "expertise" then
+        return tonumber(stats and stats.EXPERTISE) or 0
+    elseif ratingKey == "defense" then
+        return tonumber(stats and stats.DEFENSE) or 0
+    elseif ratingKey == "arp" then
+        return tonumber(stats and stats.ARPEN) or 0
+    end
+    return 0
+end
+
+local function RatingsForReplacement(removed, candidateStats)
+    local current = playerSnap.ratings
+    local baseline = CloneRatings(current)
+    local after = CloneRatings(current)
+    for _, ratingKey in ipairs({ "hitSpell", "hitMelee", "hitRanged", "expertise", "defense", "arp" }) do
+        local removedAmount = 0
+        for _, eq in ipairs(removed) do
+            removedAmount = removedAmount + RatingAmount(eq.stats, ratingKey)
+        end
+        baseline[ratingKey] = math.max(0, (tonumber(current[ratingKey]) or 0) - removedAmount)
+        after[ratingKey] = baseline[ratingKey] + RatingAmount(candidateStats, ratingKey)
+    end
+    return baseline, after
+end
+
+local function AddStats(dst, src)
+    for key, value in pairs(src or {}) do
+        value = tonumber(value)
+        if value and STAT_KEYS[key] then
+            dst[key] = (dst[key] or 0) + value
+        end
+    end
+end
+
+local function ItemBudgetScore(stats, ilvl, w, db)
+    local useful = HasUsefulNativeStat(stats, w, db)
+    if not useful then return 0 end
+    local score = (tonumber(ilvl) or 0) * ILVL_W
+    local sockets = tonumber(stats and stats.SOCKET) or 0
+    if sockets > 0 then
+        score = score + sockets * SOCKET_GEM * (w[w._primary or "STR"] or 1)
+    end
+    return score
+end
+
+local function ReplacementUpgrade(candidate, removed, w, db, notes, candidateUseful)
+    local baseline, after = RatingsForReplacement(removed, candidate.stats)
+    local oldStats = {}
+    local oldBudget = 0
+    for _, eq in ipairs(removed) do
+        AddStats(oldStats, eq.stats)
+        oldBudget = oldBudget + ItemBudgetScore(eq.stats, eq.ilvl, w, db)
+    end
+    local oldScore = ScoreStats(oldStats, w, db, nil, {}, baseline, false) + oldBudget
+    local newScore, newWhite, newGreen = ScoreStats(
+        candidate.stats, w, db, candidate.ilvl, notes, baseline, candidateUseful)
+    return newScore - oldScore, after, oldScore, newScore, newWhite, newGreen
+end
+
+local function ReplacementPlans(equipLoc, itemID, db)
     local slots = SlotsForLoc(equipLoc)
     if not slots then
-        return 0, nil
+        return nil, "slot"
     end
     if UniqueEquipped(itemID, slots) and ItemIsUniqueEquip(itemID) then
-        local s, link = ScoreSlot(slots[1], w, db)
-        if #slots == 2 then
-            local s2, link2 = ScoreSlot(slots[2], w, db)
-            if GetInventoryItemID("player", slots[2]) == itemID then
-                return s2, link2, "unique"
-            end
-        end
-        if GetInventoryItemID("player", slots[1]) == itemID then
-            return s, link, "unique"
-        end
+        return nil, "unique"
     end
     if equipLoc == "INVTYPE_2HWEAPON" then
-        local s1, l1 = ScoreSlot(16, w, db)
-        local s2, l2 = ScoreSlot(17, w, db)
-        return s1 + s2, l1, nil, l2
+        return { { slots = { 16, 17 } } }
     end
     if #slots == 2 then
-        local s1, l1 = ScoreSlot(slots[1], w, db)
-        local s2, l2 = ScoreSlot(slots[2], w, db)
-        if s1 <= s2 then
-            return s1, l1
+        if equipLoc == "INVTYPE_WEAPON" then
+            local main = playerSnap.equipped[16]
+            if main and main.equipLoc == "INVTYPE_2HWEAPON" then
+                return { { slots = { 16 } } }
+            end
+            if not CanUseOffHandWeapon(GetClassFile(), db.specType) then
+                return { { slots = { 16 } } }
+            end
         end
-        return s2, l2
+        return { { slots = { slots[1] } }, { slots = { slots[2] } } }
     end
-    return ScoreSlot(slots[1], w, db)
+    return { { slots = { slots[1] } } }
+end
+
+local function EquippedForPlan(plan)
+    local removed = {}
+    for _, slot in ipairs(plan.slots) do
+        local eq = playerSnap.equipped[slot]
+        if eq then
+            if not eq.ready then
+                return nil
+            end
+            tinsert(removed, eq)
+        end
+    end
+    return removed
 end
 
 local function ExchangeProducts(itemID)
     if not itemID or not BG.Loot or not BG.FBtable then return end
-    for _, FB in ipairs(BG.FBtable) do
-        local ex = BG.Loot[FB] and BG.Loot[FB].ExchangeItems
-        if ex and ex[itemID] then
-            return ex[itemID]
+    if type(itemID) == "string" then
+        itemID = GetItemID(itemID) or tonumber(itemID)
+    else
+        itemID = tonumber(itemID) or itemID
+    end
+    if not itemID then return end
+    local products = {}
+    local seen = {}
+    local function AddProducts(list)
+        if type(list) ~= "table" then return end
+        local indexed = {}
+        for index = 1, #list do
+            indexed[index] = true
+            local productID = tonumber(list[index]) or list[index]
+            if productID and not seen[productID] then
+                seen[productID] = true
+                tinsert(products, productID)
+            end
+        end
+        -- Also accept sparse/keyed exchange tables used by older custom data.
+        for index, productID in pairs(list) do
+            if not indexed[index] then
+                productID = tonumber(productID) or productID
+                if productID and not seen[productID] then
+                    seen[productID] = true
+                    tinsert(products, productID)
+                end
+            end
         end
     end
+    for _, FB in ipairs(BG.FBtable) do
+        local ex = BG.Loot[FB] and BG.Loot[FB].ExchangeItems
+        local list = ex and ex[itemID]
+        AddProducts(list)
+    end
+    if #products > 0 then
+        return products
+    end
 end
+
+-- Kept public so the table/tooltip UI can distinguish an exchange token from
+-- an ordinary non-gear item before applying its normal gear-only filter.
+BG.GearScore_GetExchangeProducts = ExchangeProducts
+function BG.GearScore_IsExchangeItem(itemID)
+    return ExchangeProducts(itemID) ~= nil
+end
+
+local function IsLegendaryItem(quality, link, itemLink)
+    if quality == 5 then
+        return true
+    end
+    if type(itemLink) == "string"
+        and itemLink:lower():find("|cffff8000", 1, true) then
+        return true
+    end
+    if type(link) == "string"
+        and link:lower():find("|cffff8000", 1, true) then
+        return true
+    end
+    return false
+end
+
+-- Orange equipment-upgrade materials are transferable tokens, not gear that
+-- the current character must be able to equip. Keep them highlighted in
+-- auctions when their exchange table identifies them, or when a newly added
+-- token is known to be unequippable and is not pickup-bound.
+function BG.GearScore_IsOrangeWeaponUpgradeItem(itemID, link)
+    if type(itemID) ~= "number" then
+        itemID = GetItemID(itemID or link)
+    end
+    if not itemID then
+        return false
+    end
+
+    local _, itemLink, quality, _, _, _, _, _, equipLoc, _, _, _, _, bindType = GetItemInfo(link or itemID)
+    if not IsLegendaryItem(quality, link, itemLink) then
+        return false
+    end
+
+    local products = ExchangeProducts(itemID)
+    -- The source item's exchange table is authoritative. Product metadata is
+    -- often not cached yet when an auction frame is first created, so do not
+    -- make the result depend on the exchanged products being loaded.
+    if products and #products > 0 then
+        return true
+    end
+
+    -- Keep newly introduced materials working before their exchange mapping is
+    -- added to the loot database. An ordinary legendary weapon or armor has an
+    -- equip location, while transferable upgrade tokens do not.
+    local instantEquipLoc = GetItemInfoInstant and select(4, GetItemInfoInstant(link or itemID))
+    local itemEquipLoc = equipLoc or instantEquipLoc
+    if not itemEquipLoc or itemEquipLoc == "" then
+        -- Some versions classify upgrade tokens as weapons despite leaving
+        -- them unequippable. Their empty equip location is sufficient to
+        -- distinguish them from a real legendary weapon or armor.
+        return bindType ~= 1
+    end
+    return false
+end
+
+BG.GearScore_IsOrangeUpgradeItem = BG.GearScore_IsOrangeWeaponUpgradeItem
 
 local function Round1(n)
     if not n then return 0 end
@@ -2542,6 +2971,11 @@ local function EvalOne(itemID, link, db, w)
         result.reason = "notgear"
         return result
     end
+    if not name or ilvl == nil or not typeID or not equipLoc or equipLoc == "" or subclassID == nil then
+        result.suitable = false
+        result.reason = "loading"
+        return result
+    end
 
     local class = GetClassFile()
     if not ItemClassOK(itemID, itemLink or link) then
@@ -2565,32 +2999,80 @@ local function EvalOne(itemID, link, db, w)
         return result
     end
 
-    local notes = result.notes
-    local newScore, stats, _, _, _, _, white, green = ScoreLink(itemLink or link, itemID, w, db, notes)
-    result.newScore = newScore
+    local stats, statsReady = ParseItemStats(itemID, itemLink or link)
     result.stats = stats
-    result.newWhite = white or 0
-    result.newGreen = green or 0
-    if WrongStatSchool(stats, db) then
+    if not statsReady then
+        result.suitable = false
+        result.reason = "loading"
+        return result
+    end
+
+    local hasProc = (equipLoc == "INVTYPE_TRINKET" or equipLoc == "INVTYPE_FINGER")
+        and ItemHasProc(itemID, itemLink or link)
+    local wrongStats, forbidden, hasUseful = WrongStatSchool(stats, db, w)
+    result.wasteStats = forbidden
+    if wrongStats or (not hasUseful and not hasProc) then
         result.suitable = false
         result.reason = "stats"
         result.upgrade = 0
         return result
     end
-    if (equipLoc == "INVTYPE_TRINKET" or equipLoc == "INVTYPE_FINGER") and ItemHasProc(itemID, itemLink or link) then
-        tinsert(notes, "proc")
+    if hasProc then
+        tinsert(result.notes, "proc")
     end
 
-    local oldScore, oldLink, uniqueReason, oldLink2 = CompareScore(equipLoc, w, db, itemID)
-    result.oldScore = oldScore or 0
-    result.oldLink = oldLink
-    result.oldLink2 = oldLink2
-    if uniqueReason == "unique" then
+    local plans, planReason = ReplacementPlans(equipLoc, itemID, db)
+    if planReason == "unique" then
         result.reason = "unique"
         result.upgrade = 0
         return result
     end
-    result.upgrade = newScore - (oldScore or 0)
+    if not plans then
+        result.suitable = false
+        result.reason = planReason or "slot"
+        return result
+    end
+
+    local candidate = { stats = stats, ilvl = ilvl, link = itemLink or link, itemID = itemID }
+    local best
+    for _, plan in ipairs(plans) do
+        local removed = EquippedForPlan(plan)
+        if not removed then
+            result.suitable = false
+            result.reason = "loading"
+            return result
+        end
+        local planNotes = {}
+        if hasProc then tinsert(planNotes, "proc") end
+        local upgrade, ratingsAfter, oldScore, replacementScore, newWhite, newGreen =
+            ReplacementUpgrade(candidate, removed, w, db, planNotes, hasUseful)
+        if not best or upgrade > best.upgrade then
+            best = {
+                upgrade = upgrade,
+                oldScore = oldScore,
+                newScore = replacementScore,
+                removed = removed,
+                notes = planNotes,
+                ratingsAfter = ratingsAfter,
+                newWhite = newWhite,
+                newGreen = newGreen,
+            }
+        end
+    end
+    if not best then
+        result.suitable = false
+        result.reason = "slot"
+        return result
+    end
+    result.upgrade = best.upgrade
+    result.oldScore = best.oldScore
+    result.newScore = best.newScore
+    result.oldLink = best.removed[1] and best.removed[1].link or nil
+    result.oldLink2 = best.removed[2] and best.removed[2].link or nil
+    result.notes = best.notes
+    result.ratingsAfter = best.ratingsAfter
+    result.newWhite = best.newWhite or 0
+    result.newGreen = best.newGreen or 0
     return result
 end
 
@@ -2603,6 +3085,12 @@ end
 
 function BG.GearScore_Eval(link)
     if not link then return end
+    if BG.GearScore_IsOrangeWeaponUpgradeItem then
+        local itemID = type(link) == "number" and link or GetItemID(link)
+        if BG.GearScore_IsOrangeWeaponUpgradeItem(itemID, link) then
+            return
+        end
+    end
     local db = GetDB()
     local w = BuildWeights(db)
     local itemID
@@ -2629,7 +3117,7 @@ function BG.GearScore_Eval(link)
         for _, pid in ipairs(products) do
             local r = SafeEvalOne(pid, pid, db, w)
             if r and r.suitable then
-                if not best or r.newScore > best.newScore then
+                if not best or r.upgrade > best.upgrade then
                     best = r
                     best.tokenItemID = pid
                     best.tokenFrom = itemID
@@ -2650,14 +3138,6 @@ function BG.GearScore_Eval(link)
     return SafeEvalOne(itemID, link, db, w)
 end
 
--- 名称后只显示升级分；自己不能用时竞价窗改黑白，不挂叉叉
-local function ShowNameBadge(ev)
-    if not ev or not ev.suitable then
-        return false
-    end
-    return true
-end
-
 local GRAY_R, GRAY_G, GRAY_B = 0.62, 0.62, 0.62
 
 local function StripColorCodes(s)
@@ -2665,6 +3145,96 @@ local function StripColorCodes(s)
         return s
     end
     return s:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("|H.-|h", ""):gsub("|h", "")
+end
+
+local ITEM_LIST_UNUSABLE_REASON = {
+    class = true,
+    weapon = true,
+}
+
+local function ItemListAppearance(link, legacyFiltered)
+    local ev = BG.GearScore_Eval(link)
+    if ev and ev.suitable == false then
+        if ITEM_LIST_UNUSABLE_REASON[ev.reason] then
+            return "unusable"
+        elseif ev.reason == "armor" then
+            local _, _, _, _, _, _, subclassID = GetItemInfoInstant(link)
+            local maxArmor = CLASS_ARMOR[GetClassFile()]
+            if maxArmor and subclassID and subclassID > maxArmor then
+                return "unusable"
+            end
+            return "offspec"
+        elseif ev.reason == "stats" then
+            return "offspec"
+        end
+    end
+    if legacyFiltered then
+        return "offspec"
+    end
+end
+
+local function PaintItemListFont(fs, originalText, grayscale)
+    if not fs then return end
+    if originalText ~= nil then
+        fs:SetText(grayscale and StripColorCodes(originalText) or originalText)
+    end
+    if grayscale then
+        fs:SetTextColor(GRAY_R, GRAY_G, GRAY_B)
+    else
+        fs:SetTextColor(1, 1, 1)
+    end
+end
+
+function BG.GearScore_UpdateItemListButton(bt, link, legacyFiltered)
+    if not bt or not bt.frame then return end
+    link = link or bt.link
+    if not link then return end
+
+    if bt._gsItemText == nil and bt.item then
+        bt._gsItemText = bt.item:GetText() or ""
+    end
+    if legacyFiltered ~= nil then
+        bt._gsLegacyFiltered = legacyFiltered and true or false
+    end
+    local appearance = ItemListAppearance(link, bt._gsLegacyFiltered)
+    bt.gearScoreAppearance = appearance
+
+    if appearance == "unusable" then
+        bt.frame:SetAlpha(1)
+        if bt.icon then
+            bt.icon:SetDesaturated(true)
+            bt.icon:SetVertexColor(0.72, 0.72, 0.72)
+        end
+        if bt.iconFrame then
+            bt.iconFrame:SetBackdropBorderColor(0.5, 0.5, 0.5, 1)
+        end
+        PaintItemListFont(bt.item, bt._gsItemText, true)
+        if bt.iconFrame and bt.iconFrame.level then
+            bt.iconFrame.level:SetTextColor(GRAY_R, GRAY_G, GRAY_B)
+        end
+        return
+    end
+
+    if bt.icon then
+        bt.icon:SetDesaturated(false)
+        bt.icon:SetVertexColor(1, 1, 1)
+    end
+    if bt.iconFrame and bt.qualityColor then
+        bt.iconFrame:SetBackdropBorderColor(unpack(bt.qualityColor))
+    end
+    PaintItemListFont(bt.item, bt._gsItemText, false)
+    if bt.iconFrame and bt.iconFrame.level and bt.qualityColor then
+        bt.iconFrame.level:SetTextColor(unpack(bt.qualityColor))
+    end
+    bt.frame:SetAlpha(appearance == "offspec" and 0.4 or 1)
+end
+
+-- 名称后只显示升级分；自己不能用时竞价窗改黑白，不挂叉叉
+local function ShowNameBadge(ev)
+    if not ev or not ev.suitable then
+        return false
+    end
+    return true
 end
 
 local function PaintAuctionFont(fs, unusable)
@@ -2691,6 +3261,7 @@ end
 
 local function ApplyAuctionUnusableLook(bidFrame, unusable)
     unusable = unusable and true or false
+    local orangeWeaponUpgrade = bidFrame.orangeWeaponUpgrade
     bidFrame.unusable = unusable
     local itemFrame = bidFrame.itemFrame
     if itemFrame then
@@ -2729,7 +3300,7 @@ local function ApplyAuctionUnusableLook(bidFrame, unusable)
             end
         end
     end
-    if unusable or bidFrame.filterByScheme then
+    if (unusable or bidFrame.filterByScheme) and not orangeWeaponUpgrade then
         bidFrame.filter = true
         if BGA and BGA.aura_env and BGA.aura_env.SetFrameColor and not IsMeAuction(bidFrame) then
             BGA.aura_env.SetFrameColor(bidFrame, 2)
@@ -2779,99 +3350,9 @@ local function BadgeColors(ev)
     return 0.38, 0.3, 0.04, 0.95
 end
 
-local REASON_TEXT = {
-    armor = L["不适合你的护甲类型"],
-    weapon = L["不适合你的武器类型"],
-    class = L["职业限定不含你"],
-    unique = L["已装备唯一"],
-    notgear = L["不是装备"],
-    stats = L["属性不适合你的天赋"],
-}
-
-local NOTE_TEXT = {
-    hitcap = L["命中已达标，额外命中几乎不计"],
-    hitpartial = L["命中仅缺口部分计入"],
-    expcap = L["精准已达标，额外精准几乎不计"],
-    exppartial = L["精准仅缺口部分计入"],
-    defcap = L["防御已达标，额外防御几乎不计"],
-    defpartial = L["防御仅缺口部分计入"],
-    arpcap = L["破甲已达标，额外破甲几乎不计"],
-    arppartial = L["破甲仅缺口部分计入"],
-    proc = L["特效未计入"],
-}
-
 function BG.GearScore_AddTooltip(tooltip, link)
-    if not tooltip or not link then return end
-    if BiaoGe.options.gearScore ~= 1 then return end
-    local itemID = GetItemID(link)
-    if not itemID and GetItemInfoInstant then
-        itemID = GetItemInfoInstant(link)
-    end
-    if not itemID then return end
-    local typeID = ItemTypeID(link)
-    if typeID and typeID ~= 2 and typeID ~= 4 then return end
-
-    local text, r, g, b, ev = BG.GearScore_Format(link, true)
-    tooltip:AddLine(" ")
-    tooltip:AddLine(L["< BGLite 自身评分 >"], 0, 0.75, 1)
-    if not ev then return end
-    if not ev.suitable then
-        tooltip:AddLine(REASON_TEXT[ev.reason] or L["不适合"], 1, 0.2, 0.2)
-        tooltip:Show()
-        return
-    end
-    if ev.reason == "unique" then
-        tooltip:AddLine(L["已装备唯一"], 1, 0.82, 0)
-        tooltip:Show()
-        return
-    end
-    tooltip:AddDoubleLine(L["升级"], text, 1, 0.82, 0, r, g, b)
-    local newS = Round1(ev.newScore)
-    local oldS = Round1(ev.oldScore)
-    if ev.oldLink then
-        tooltip:AddDoubleLine(format(L["掉落 %s"], newS), format(L["当前 %s"], oldS), 1, 1, 1, 0.7, 0.7, 0.7)
-    else
-        tooltip:AddDoubleLine(format(L["掉落 %s"], newS), L["当前栏位空"], 1, 1, 1, 0.7, 0.7, 0.7)
-    end
-    local whiteS = Round1(ev.newWhite)
-    local greenS = Round1(ev.newGreen)
-    if whiteS ~= 0 or greenS ~= 0 then
-        tooltip:AddDoubleLine(
-            format("%s %s", L["白字"], whiteS),
-            format("%s %s", L["绿字"], greenS),
-            0.85, 0.85, 0.85, 0.2, 1, 0.35)
-    end
-    if ev.tokenItemID and ev.tokenItemID ~= ev.itemID then
-        local n = GetItemInfo(ev.tokenItemID)
-        if n then
-            tooltip:AddLine(format(L["兑换为：%s"], n), 0.5, 0.8, 1)
-        end
-    end
-    local db = GetDB()
-    local ep, isCustom = GetEffectiveEPWeights(db)
-    if ep then
-        local ranked = {}
-        for k, v in pairs(ep) do
-            if tonumber(v) and v > 0 then
-                tinsert(ranked, { key = k, value = v })
-            end
-        end
-        table.sort(ranked, function(a, b) return a.value > b.value end)
-        local parts = {}
-        for i = 1, math.min(5, #ranked) do
-            tinsert(parts, format("%s %s", EPLabel(ranked[i].key), FormatWeight(ranked[i].value)))
-        end
-        if #parts > 0 then
-            local prefix = isCustom and L["自定义属性价值"] or L["属性价值"]
-            tooltip:AddLine(prefix .. "：" .. table.concat(parts, "  "), 0.6, 0.6, 0.6)
-        end
-    end
-    for _, note in ipairs(ev.notes) do
-        if NOTE_TEXT[note] then
-            tooltip:AddLine(NOTE_TEXT[note], 0.6, 0.6, 0.6)
-        end
-    end
-    tooltip:Show()
+    -- Gear scores remain available to tables and auction windows, but item
+    -- tooltips intentionally stay compact so comparison panels do not widen.
 end
 
 local function FSWidth(fs)
@@ -2930,8 +3411,15 @@ function BG.ScoreText(bt, link)
         bt.scoreFrame:Hide()
         return
     end
+    if BG.GearScore_IsOrangeWeaponUpgradeItem
+        and BG.GearScore_IsOrangeWeaponUpgradeItem(itemID, text) then
+        bt.scoreFrame:Hide()
+        return
+    end
+    local isExchangeItem = BG.GearScore_IsExchangeItem
+        and BG.GearScore_IsExchangeItem(itemID)
     local typeID = ItemTypeID(text)
-    if typeID and typeID ~= 2 and typeID ~= 4 then
+    if typeID and typeID ~= 2 and typeID ~= 4 and not isExchangeItem then
         bt.scoreFrame:Hide()
         return
     end
@@ -2990,6 +3478,11 @@ function BG.UpdateAllGearScore()
             BG.GearScore_UpdateAuctionFrame(f)
         end
     end
+    if BG.auctionLogFrame and BG.auctionLogFrame.buttons then
+        for _, bt in ipairs(BG.auctionLogFrame.buttons) do
+            BG.GearScore_UpdateItemListButton(bt)
+        end
+    end
     if BG.GearScore_RefreshOptionsStatus then
         BG.GearScore_RefreshOptionsStatus()
     end
@@ -3038,8 +3531,19 @@ function BG.GearScore_UpdateAuctionFrame(bidFrame)
     badge:SetFrameLevel((parent:GetFrameLevel() or 0) + 25)
 
     local link = bidFrame.link or (bidFrame.itemFrame and bidFrame.itemFrame.link)
-    local evLook = link and BG.GearScore_Eval(link)
-    ApplyAuctionUnusableLook(bidFrame, evLook and evLook.suitable == false and evLook.reason ~= "notgear")
+    local orangeWeaponUpgrade = BG.GearScore_IsOrangeWeaponUpgradeItem
+        and BG.GearScore_IsOrangeWeaponUpgradeItem(bidFrame.itemID, link)
+    bidFrame.orangeWeaponUpgrade = orangeWeaponUpgrade and true or false
+    local evLook = not orangeWeaponUpgrade and link and BG.GearScore_Eval(link)
+    ApplyAuctionUnusableLook(bidFrame, evLook and evLook.suitable == false
+        and evLook.reason ~= "notgear" and evLook.reason ~= "loading"
+        and not orangeWeaponUpgrade)
+
+    if orangeWeaponUpgrade then
+        badge:Hide()
+        SetAuctionTextWidths(bidFrame, 50, 50)
+        return
+    end
 
     if BiaoGe.options.gearScore ~= 1 or BiaoGe.options.gearScoreAuction ~= 1 then
         badge:Hide()
@@ -3184,6 +3688,7 @@ BG.Init2(function()
 end)
 
 BG.RegisterEvent({
+    "GET_ITEM_INFO_RECEIVED",
     "PLAYER_EQUIPMENT_CHANGED",
     "COMBAT_RATING_UPDATE",
     "PLAYER_REGEN_ENABLED",
@@ -3191,6 +3696,9 @@ BG.RegisterEvent({
     "ACTIVE_TALENT_GROUP_CHANGED",
     "CHARACTER_POINTS_CHANGED",
 }, function(_, event)
+    if event == "GET_ITEM_INFO_RECEIVED" then
+        itemStatCache = {}
+    end
     if event == "PLAYER_TALENT_UPDATE" or event == "ACTIVE_TALENT_GROUP_CHANGED" or event == "CHARACTER_POINTS_CHANGED" then
         ApplyGuessIfNeeded()
         if BG.GearScore_RefreshSpecBar then
@@ -3509,10 +4017,12 @@ function BG.GearScore_OptionsUI(parent)
             local ranked = {}
             local score = 0
             for k, v in pairs(ep) do
-                local wgt = tonumber(v) or 0
-                local cur = ReadEPStat(k) or 0
-                score = score + cur * wgt
-                tinsert(ranked, { key = k, value = wgt, cur = cur })
+                if EPWeightAllowed(k, db) then
+                    local wgt = tonumber(v) or 0
+                    local cur = ReadEPStat(k) or 0
+                    score = score + cur * wgt
+                    tinsert(ranked, { key = k, value = wgt, cur = cur })
+                end
             end
             table.sort(ranked, function(a, b)
                 if a.value == b.value then
@@ -3612,6 +4122,7 @@ function BG.GearScore_OptionsUI(parent)
 
     local dw = MakeProfileCheck(L["双持命中帽"], L["近战双持把命中门槛从 8% 改为 27%。"], db.dualWieldHit, function(self)
         db.dualWieldHit = self:GetChecked() and true or false
+        db.dualWieldHitSet = true
         db.userSet = true
         AfterRoleChange(false)
     end)
@@ -3746,11 +4257,13 @@ function BG.GearScore_OptionsUI(parent)
 
         local statKeys, seen = {}, {}
         for k, v in pairs(defaults) do
-            tinsert(statKeys, { key = k, value = tonumber(weights[k] or v) or 0 })
-            seen[k] = true
+            if EPWeightAllowed(k, db) then
+                tinsert(statKeys, { key = k, value = tonumber(weights[k] or v) or 0 })
+                seen[k] = true
+            end
         end
         for k, v in pairs(weights) do
-            if not seen[k] then
+            if not seen[k] and EPWeightAllowed(k, db) then
                 tinsert(statKeys, { key = k, value = tonumber(v) or 0 })
             end
         end
@@ -3841,6 +4354,20 @@ function BG.GearScore_OptionsUI(parent)
         importTitle:SetText(L["导入WOWSimsCN的EP权重数据"])
         Track(importTitle)
         yOff = yOff - 22
+
+        local importHelp = weightBox:CreateFontString()
+        importHelp:SetFont(BIAOGE_TEXT_FONT, 12, "OUTLINE")
+        importHelp:SetPoint("TOPLEFT", 0, yOff)
+        importHelp:SetWidth(700)
+        importHelp:SetHeight(124)
+        importHelp:SetJustifyH("LEFT")
+        importHelp:SetJustifyV("TOP")
+        importHelp:SetSpacing(2)
+        importHelp:SetWordWrap(true)
+        importHelp:SetTextColor(0.75, 0.75, 0.75)
+        importHelp:SetText(L["WOWSimsCN EP导入说明"])
+        Track(importHelp)
+        yOff = yOff - 132
 
         local importBG = CreateFrame("Frame", nil, weightBox, BackdropTemplateMixin and "BackdropTemplate" or nil)
         importBG:SetPoint("TOPLEFT", 0, yOff)

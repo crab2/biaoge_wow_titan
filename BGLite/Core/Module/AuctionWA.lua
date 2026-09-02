@@ -286,6 +286,11 @@ BG.Init(function()
    end)
   end
   function wa.SetFrameColor(bidFrame, colorIndex)
+   -- Transferable orange upgrade materials must never use the gray filtered
+   -- state, even if a filter pass ran before the item metadata finished loading.
+   if bidFrame.orangeWeaponUpgrade and colorIndex == 2 then
+    colorIndex = 0
+   end
    local backdropColor, borderColor, font
    if colorIndex == 1 then
     backdropColor = wa.backdropColor_IsMe

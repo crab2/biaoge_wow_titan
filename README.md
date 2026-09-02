@@ -1,4 +1,4 @@
-# BGLite（泰坦时光服金团表格）
+# bg次bis版（泰坦时光服金团表格）
 
 魔兽世界 **泰坦时光服**（`_classic_titan_`，Interface `38002`）用的金团插件：团本掉落后团长拍卖记账、对账、通报、分工资。
 
@@ -8,7 +8,7 @@
 
 - 游戏内插件目录：`D:\World of Warcraft\_classic_titan_\Interface\AddOns\BGLite`
 - 拷贝时间：2026-08-27
-- 基础版本：`2.4.0`（TOC 标题：`<BGLite> BGLite纯净版`）
+- 基础版本：`2.4.0`（TOC 标题：`<bg次bis版> bg次bis版纯净版`）
 - 原作血统：金团表格 **BiaoGe** 的 Lite / 纯净裁剪版（作者标记 `CQZS (Lite)`）
 
 ## 文档

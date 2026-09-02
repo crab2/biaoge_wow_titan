@@ -141,7 +141,7 @@ BG.Init(function()
         local line = 2
         tooltip:AddLine(self.title, 0, 1, 0)
         --[[         if self.isAuciton then
-            tooltip:AddLine(L["需全团安装%s，没安装的人将会看不到拍卖窗口。"]:format(BG.IsRetail and "BGLite插件" or L["拍卖WA"]), 0.5, 0.5, 0.5, true)
+            tooltip:AddLine(L["需全团安装%s，没安装的人将会看不到拍卖窗口。"]:format(BG.IsRetail and "bg次bis版插件" or L["拍卖WA"]), 0.5, 0.5, 0.5, true)
             if not BG.IsRetail then
                 local text = ""
                 if not WeakAurasOptions then
@@ -318,12 +318,22 @@ BG.Init(function()
             BiaoGe.Auction.mod = 'normal'
         end
         BiaoGe.Auction.aotoSendLate = BiaoGe.Auction.aotoSendLate or 3
-        BiaoGe.Auction.gen = 2
+        -- Keep the wire generation selectable so older BGLite clients can still
+        -- receive auctions.  The value is negotiated from the raid version list
+        -- shown in the generation menu below and is persisted per player.
+        BiaoGe.Auction.gen = tonumber(BiaoGe.Auction.gen) or 1
+        if BiaoGe.Auction.gen ~= 1 and BiaoGe.Auction.gen ~= 2 then
+            BiaoGe.Auction.gen = 1
+        end
         BiaoGe.Auction.resetThreshold = BiaoGe.Auction.resetThreshold or 20
 
         local mods = {
             normal = L["常规模式"],
             -- roll = L["Roll点"],
+        }
+        local gens = {
+            [1] = L["第一代拍卖"],
+            [2] = L["第二代拍卖"],
         }
         if not mods[BiaoGe.Auction.mod] then
             BiaoGe.Auction.mod = "normal"
@@ -333,10 +343,22 @@ BG.Init(function()
         local maxCount = 10
         local errorMsg = L['错误：同时拍卖的数量不能超过%s个']:format(maxCount)
 
-        function BG.SendStartAuctionMsg(_, itemID, money, duration, mod, link, resetThreshold)
-            local channel = BGA.aura_env.GetAddonChannelName()
-            local text = format("StartAuction^%s^%s^%s^%s^^%s^%s^%s",
-                GetTime(), itemID, money, duration, mod, link, resetThreshold)
+        -- AuctionWAEvent accepts both generations:
+        --   Gen1: BiaoGeAuction + comma fields (legacy clients)
+        --   Gen2: BiaoGeAuction1..10 + caret fields + reset threshold
+        -- Keep this branch explicit; changing the separator or prefix breaks
+        -- clients that only register the legacy channel.
+        function BG.SendStartAuctionMsg(isGen2, itemID, money, duration, mod, link, resetThreshold)
+            local channel, text
+            if isGen2 then
+                channel = BGA.aura_env.GetAddonChannelName()
+                text = format("StartAuction^%s^%s^%s^%s^^%s^%s^%s",
+                    GetTime(), itemID, money, duration, mod, link or "", resetThreshold or 20)
+            else
+                channel = "BiaoGeAuction"
+                text = format("StartAuction,%s,%s,%s,%s,,%s,%s",
+                    GetTime(), itemID, money, duration, mod, link or "")
+            end
             C_ChatInfo.SendAddonMessage(channel, text, "RAID")
         end
 
@@ -402,6 +424,7 @@ BG.Init(function()
                 local _duration = tonumber(BiaoGe.Auction.duration)
                 local duration = _duration and _duration > 0 and _duration
                 if not (money and duration) then return end
+                local isGen2 = BiaoGe.Auction.gen == 2
                 local resetThreshold = max(tonumber(BiaoGe.Auction.resetThreshold) or 0, 10)
                 local delay = 0
                 if #self.items > 1 then
@@ -409,7 +432,7 @@ BG.Init(function()
                         local itemID = v.id
                         local link = v.link
                         BG.After(delay, function()
-                            BG.SendStartAuctionMsg(true, itemID, money, duration, mod, link, resetThreshold)
+                            BG.SendStartAuctionMsg(isGen2, itemID, money, duration, mod, link, resetThreshold)
                         end)
                         delay = delay + 1
                     end
@@ -419,7 +442,7 @@ BG.Init(function()
                         local itemID = self.items[1].id
                         local link = self.items[1].link
                         BG.After(delay, function()
-                            BG.SendStartAuctionMsg(true, itemID, money, duration, mod, link, resetThreshold)
+                            BG.SendStartAuctionMsg(isGen2, itemID, money, duration, mod, link, resetThreshold)
                         end)
                         delay = delay + 1
                     end
@@ -436,6 +459,9 @@ BG.Init(function()
             GameTooltip:AddLine(L["重置阈值(秒)"], 1, 1, 1, true)
             GameTooltip:AddLine(L["当剩余时间低于此阈值时有人出价，拍卖时间会自动重置回该阈值。"], 1, 0.82, 0, true)
             GameTooltip:AddLine(L["阈值不能低于10秒。"], 1, 0.82, 0, true)
+            if BiaoGe.Auction.gen ~= 2 then
+                GameTooltip:AddLine(L["仅第二代拍卖可以修改。"], 1, 0, 0, true)
+            end
             GameTooltip:Show()
         end
         local function Start_OnEnter(self)
@@ -482,10 +508,31 @@ BG.Init(function()
         local function UpdateFrame()
             local mainFrame = BG.StartAucitonFrame
             if not (mainFrame and mainFrame.Edit3 and mainFrame.Text5) then return end
-            mainFrame.Edit3:SetEnabled(true)
-            mainFrame.Edit3:SetTextColor(1, 1, 1)
-            mainFrame.Text5:SetTextColor(1, .82, 0)
+            if BiaoGe.Auction.gen == 2 then
+                mainFrame.Edit3:SetEnabled(true)
+                mainFrame.Edit3:SetTextColor(1, 1, 1)
+                mainFrame.Text5:SetTextColor(1, .82, 0)
+            else
+                mainFrame.Edit3:SetEnabled(false)
+                mainFrame.Edit3:SetTextColor(0.5, 0.5, 0.5)
+                mainFrame.Edit3:SetText(20)
+                mainFrame.Text5:SetTextColor(0.5, 0.5, 0.5)
+            end
         end
+
+        hooksecurefunc(LibBG, "ToggleDropDownMenu", function(_, _, _, dropDown)
+            local _dropDown = BG.StartAucitonFrame and BG.StartAucitonFrame.dropDown2
+            if _dropDown and dropDown == _dropDown then
+                if L_DropDownList1:IsVisible() then
+                    Addon_OnEnter(BG.StartAucitonFrame, _, BiaoGeTooltip2)
+                else
+                    BiaoGeTooltip2:Hide()
+                end
+            end
+        end)
+        L_DropDownList1:HookScript('OnHide', function(self)
+            BiaoGeTooltip2:Hide()
+        end)
 
         function BG.StartAuction(link, bt, isNotAuctioned, notAlt, isRightButton, noSound, callback)
             if BiaoGe.options["autoAuctionStart"] ~= 1 and not notAlt then return end
@@ -676,7 +723,7 @@ BG.Init(function()
             local textWidth = width + 12
             local dropDownWidth = width + 2
 
-            -- 拍卖模式（不再提供一代/二代切换，固定用当前竞拍）
+            -- 拍卖版本
             do
                 local t = mainFrame:CreateFontString()
                 t:SetFont(BIAOGE_TEXT_FONT, 15, "OUTLINE")
@@ -684,20 +731,69 @@ BG.Init(function()
                 t:SetPoint("TOPLEFT", mainFrame.itemFrame, "BOTTOMLEFT", 10, -2)
                 t:SetJustifyH("LEFT")
                 t:SetWordWrap(false)
-                t:SetText(L["|cffFFD100拍卖模式|r"])
+                t:SetText(L["|cffFFD100拍卖版本|r"])
                 mainFrame.Text1 = t
 
-                -- 右列锚点（原先给「拍卖版本」右侧的拍卖模式用）
-                local t2 = mainFrame:CreateFontString()
-                t2:SetFont(BIAOGE_TEXT_FONT, 15, "OUTLINE")
-                t2:SetSize(textWidth, 20)
-                t2:SetPoint("LEFT", mainFrame.Text1, "RIGHT", 18, 0)
-                t2:SetJustifyH("LEFT")
-                mainFrame.Text2 = t2
+                local dropDown2 = LibBG:Create_UIDropDownMenu(nil, mainFrame)
+                dropDown2:SetScale(0.95)
+                dropDown2:SetPoint("TOPLEFT", mainFrame.Text1, "BOTTOMLEFT", -17, 2)
+                LibBG:UIDropDownMenu_SetText(dropDown2, gens[BiaoGe.Auction.gen])
+                dropDown2.Text:SetJustifyH("LEFT")
+                LibBG:UIDropDownMenu_SetWidth(dropDown2, dropDownWidth)
+                LibBG:UIDropDownMenu_SetAnchor(dropDown2, 0, 0, "BOTTOM", dropDown2, "TOP")
+                mainFrame.dropDown2 = dropDown2
+                BG.dropDownToggle(dropDown2)
+                LibBG:UIDropDownMenu_Initialize(dropDown2, function(self, level)
+                    ClearAllFocus(mainFrame)
+                    if IsInRaid(1) then
+                        local counts = { [1] = 0, [2] = 0 }
+                        for name, ver in pairs(BG.raidAuctionVersion) do
+                            name = BG.GSN(name)
+                            if BG.raidRosterName[name] then
+                                counts[1] = counts[1] + 1
+                            end
+                        end
+                        for name, ver in pairs(BG.raidBiaoGeVersion) do
+                            name = BG.GSN(name)
+                            if BG.raidRosterName[name] and BG.raidBiaoGeNewVersion[name] then
+                                counts[2] = counts[2] + 1
+                            end
+                        end
+                        for gen, name in pairs(gens) do
+                            local info = LibBG:UIDropDownMenu_CreateInfo()
+                            info.text = format('%s|cff00ff00（%s/%s）|r'
+                            , name, counts[gen], GetNumGroupMembers())
+                            info.arg1 = gen
+                            info.func = function(self, arg1, arg2)
+                                BiaoGe.Auction.gen = arg1
+                                LibBG:UIDropDownMenu_SetText(dropDown2, gens[BiaoGe.Auction.gen])
+                                UpdateFrame()
+                            end
+                            info.checked = info.arg1 == BiaoGe.Auction.gen
+                            if gen == 2 then
+                                info.tooltipTitle = L['第二代拍卖']
+                                info.tooltipText = L['需要团员的BGLite版本高于v2.0.0，否则团员无法看见拍卖框。']
+                                info.tooltipOnButton = true
+                            end
+                            LibBG:UIDropDownMenu_AddButton(info)
+                        end
+                    end
+                end)
+            end
+
+            -- 拍卖模式
+            do
+                local t = f:CreateFontString()
+                t:SetFont(BIAOGE_TEXT_FONT, 15, "OUTLINE")
+                t:SetSize(textWidth, 20)
+                t:SetJustifyH("LEFT")
+                t:SetText(L["|cffFFD100拍卖模式|r"])
+                t:SetPoint("LEFT", mainFrame.Text1, "RIGHT", 18, 0)
+                mainFrame.Text2 = t
 
                 local dropDown = LibBG:Create_UIDropDownMenu(nil, mainFrame)
                 dropDown:SetScale(0.95)
-                dropDown:SetPoint("TOPLEFT", mainFrame.Text1, "BOTTOMLEFT", -17, 2)
+                dropDown:SetPoint("TOPLEFT", mainFrame.Text2, "BOTTOMLEFT", -17, 2)
                 LibBG:UIDropDownMenu_SetText(dropDown, mods[BiaoGe.Auction.mod])
                 dropDown.Text:SetJustifyH("LEFT")
                 LibBG:UIDropDownMenu_SetWidth(dropDown, dropDownWidth)
@@ -1300,7 +1396,9 @@ BG.Init(function()
         local num = filterDB and filterDB.chooseID
         if num then
             local name, link, quality, level, _, _, _, _, EquipLoc, Texture, _, typeID, subclassID, bindType = GetItemInfo(f.itemID)
-            if BG.FilterAll(f.itemID, typeID, EquipLoc, subclassID) then
+            local orangeWeaponUpgrade = BG.GearScore_IsOrangeWeaponUpgradeItem
+                and BG.GearScore_IsOrangeWeaponUpgradeItem(f.itemID, link)
+            if BG.FilterAll(f.itemID, typeID, EquipLoc, subclassID) and not orangeWeaponUpgrade then
                 f.filterByScheme = true
                 f.filter = true
                 if not (f.player and f.player == BG.playerName) then
@@ -1461,10 +1559,11 @@ BG.Init(function()
             BG.RegisterEvent("CHAT_MSG_ADDON", function(self, event, ...)
                 if not (BG.IsLeader and BiaoGe.options.autoAuctionHappySay == 1) then return end
                 local prefix, msg, distType, sender = ...
+                if type(prefix) ~= "string" or type(msg) ~= "string" then return end
                 local arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10
                 if prefix == "BiaoGeAuction" then
                     arg1, arg2, arg3, arg4, arg5, arg6, arg7 = strsplit(",", msg)
-                elseif prefix:match("BiaoGeAuction(%d+)") then
+                elseif prefix:match("^BiaoGeAuction(%d+)$") then
                     arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10 = strsplit("^", msg)
                 end
                 if not arg1 then return end

@@ -1715,7 +1715,6 @@ BG.Init(function()
 
                 tinsert(BG.auctionLogFrame.buttons, bts)
 
-                BG.UpdateFilter(f, link)
             end
             -- 图标和装等
             do
@@ -1790,6 +1789,12 @@ BG.Init(function()
                 text:SetText(L["已交易"])
                 text:SetTextColor(0, 1, 0)
             end
+
+            -- The row is complete now, so the filter can update both the row
+            -- alpha and the equipment icon/name without racing their creation.
+            bts.qualityColor = { r, g, b }
+            bts.frame.gearScoreListButton = bts
+            BG.UpdateFilter(bts.frame, link)
         end
     end
 

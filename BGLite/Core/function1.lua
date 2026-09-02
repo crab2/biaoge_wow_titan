@@ -555,7 +555,7 @@ function BG.GetItemCount(itemIDorLink)
 end
 
 function BG.SendSystemMessage(msg)
-    SendSystemMessage(BG.STC_b1("<BGLite>") .. " " .. msg)
+    SendSystemMessage(BG.STC_b1("<bg次bis版>") .. " " .. msg)
 end
 
 function BG.SetBorderAlpha(self)

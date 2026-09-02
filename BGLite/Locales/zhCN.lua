@@ -2,9 +2,11 @@ local AddonName, ns = ...
 
 local pt = print
 
+local DISPLAY_NAME = "bg次bis版"
+
 local L = setmetatable({}, {
     __index = function(table, key)
-        return tostring(key)
+        return tostring(key):gsub("[Bb][Gg][Ll][Ii][Tt][Ee]", DISPLAY_NAME)
     end
 })
 ns.L = L
@@ -24,10 +26,10 @@ if (l == "zhTW" or l == "enUS") then return end
 
 do --简体说明书
     ns.instructionsText = {
-        "|cff00BFFF<BGLite 纯净版说明>|r",
-        "本版本由魔兽世界国服运营团队对 BGLite 插件进行安全清理与精简优化，仅保留基础拍卖相关功能，并且不再新增功能模块，仅进行安全性维护。",
+        "|cff00BFFF<bg次bis版 纯净版说明>|r",
+        "本版本由魔兽世界国服运营团队对 bg次bis版 插件进行安全清理与精简优化，仅保留基础拍卖相关功能，并且不再新增功能模块，仅进行安全性维护。",
         "我们移除了与基础拍卖无关的功能及内容以及所有违规和风险代码，为玩家提供更加安全、纯净、轻量的插件使用体验。",
-        "BGLite 纯净版定位为基础、过渡性的使用选择。我们同时鼓励插件开发者基于该纯净版进行后续开发与功能增强，在确保安全与稳定的基础上，为玩家提供更加丰富、完善且功能更强大的插件选择。",
+        "bg次bis版 纯净版定位为基础、过渡性的使用选择。我们同时鼓励插件开发者基于该纯净版进行后续开发与功能增强，在确保安全与稳定的基础上，为玩家提供更加丰富、完善且功能更强大的插件选择。",
         "魔兽世界国服运营团队",
         " ",
         "|cff00BFFF操作指令：|r",
@@ -2955,8 +2957,8 @@ do
     L["绿字"] = true
     L["装备评分"] = true
     L["启用自身装备评分"] = true
-    L["分数只针对你自己，不会同步给团队。命中/精准/防御达标后，超出部分几乎不计分。同职业选择不同偏向，会推荐不同装备。"] = true
-    L["分数只针对你自己，不会同步给团队。命中/精准/防御达标后，超出部分几乎不计分。可在属性价值里自定义权重，或导入WOWSimsCN的EP数据。"] = true
+    L["分数只针对你自己，不会同步给团队。命中/精准/防御达标后，超出部分不计分。同职业选择不同偏向，会推荐不同装备。"] = true
+    L["分数只针对你自己，不会同步给团队。命中/精准/防御达标后，超出部分不计分。可在属性价值里自定义权重，或导入WOWSimsCN的EP数据。"] = true
     L["在表格装备格显示升级分"] = true
     L["在装备名右侧显示相对你当前同部位的升级分，例如 +23。"] = true
     L["在装备名称后面显示相对你当前同部位的升级分，例如 +23。"] = true
@@ -3008,20 +3010,22 @@ do
     L["防御"] = true
     L["推荐"] = true
     L["升级"] = true
-    L["< BGLite 自身评分 >"] = true
     L["不适合你的护甲类型"] = true
     L["不适合你的武器类型"] = true
     L["属性不适合你的天赋"] = true
     L["职业限定不含你"] = true
     L["已装备唯一"] = true
     L["不是装备"] = true
-    L["命中已达标，额外命中几乎不计"] = true
+    L["等待物品数据"] = true
+    L["无法比较装备栏位"] = true
+    L["无效属性不计分"] = true
+    L["命中已达标，额外命中不计分"] = true
     L["命中仅缺口部分计入"] = true
-    L["精准已达标，额外精准几乎不计"] = true
+    L["精准已达标，额外精准不计分"] = true
     L["精准仅缺口部分计入"] = true
-    L["防御已达标，额外防御几乎不计"] = true
+    L["防御已达标，额外防御不计分"] = true
     L["防御仅缺口部分计入"] = true
-    L["破甲已达标，额外破甲几乎不计"] = true
+    L["破甲已达标，额外破甲不计分"] = true
     L["破甲仅缺口部分计入"] = true
     L["特效未计入"] = true
     L["不适合"] = true
@@ -3038,6 +3042,12 @@ do
     L["自定义"] = true
     L["重置所有为默认"] = true
     L["导入WOWSimsCN的EP权重数据"] = true
+    -- zhCN keeps most entries as key fallbacks, but this panel needs the
+    -- full guidance text rather than only the section title.
+    ns.L["WOWSimsCN EP导入说明"] = [[格式：请粘贴 WoWSimsCN 导出的完整 Pawn EP 文本（英文字段名=数字，以逗号分隔；不要粘贴 JSON）。
+示例：(Pawn: v1: "我的角色": Class=Warrior, Strength=2.31, CritRating=1.98, HasteRating=1.12, Dps=13.23)
+获取方式：打开对应版本和天赋的 WoWSimsCN，完成模拟后进入“EP权重”→选择符合职责的栏位（DPS/HPS/TPS/DTPS）→“导出”→“Pawn EP”，复制整段文本。
+EP 是相对属性价值，不是百分比；只会导入当前职业/天赋可识别的字段。]]
     L["导入"] = true
     L["恢复默认"] = true
     L["当前职业暂无属性权重数据。"] = true
@@ -3056,6 +3066,7 @@ do
     L["物理急速等级"] = true
     L["精准等级"] = true
     L["破甲等级"] = true
+    L["法术穿透"] = true
     L["法术命中等级"] = true
     L["法术暴击等级"] = true
     L["法术急速等级"] = true

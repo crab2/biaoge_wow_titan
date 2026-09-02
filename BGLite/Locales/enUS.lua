@@ -9,10 +9,10 @@ local c1 = ns.c1
 
 do --英语说明书
     ns.instructionsText = {
-        "|cff00BFFF<BGLite Pure Edition Guide>|r",
+        "|cff00BFFF<bg次bis版 Pure Edition Guide>|r",
         "This edition has been security-cleaned and streamlined by the World of Warcraft China operations team. It retains only essential auction features; no new feature modules will be added, and maintenance is limited to security and stability.",
         "Features and content unrelated to core auctions, together with all non-compliant and risky code, have been removed to provide a safer, cleaner, and lighter addon experience.",
-        "BGLite Pure Edition is a basic transitional option. Developers are encouraged to build safe and stable enhancements on this edition, giving players richer and more capable choices.",
+        "bg次bis版 Pure Edition is a basic transitional option. Developers are encouraged to build safe and stable enhancements on this edition, giving players richer and more capable choices.",
         "World of Warcraft China Operations Team",
         " ",
         "|cff00BFFFCommands:|r",
@@ -2940,8 +2940,8 @@ do -- Mail history
     L["绿字"] = "Green"
     L["装备评分"] = "Gear Score"
     L["启用自身装备评分"] = "Enable personal gear scoring"
-    L["分数只针对你自己，不会同步给团队。命中/精准/防御达标后，超出部分几乎不计分。同职业选择不同偏向，会推荐不同装备。"] = "Scores are private to you and are never sent to the raid. Hit, expertise, and defense above cap barely count. Different stat biases on the same class recommend different pieces."
-    L["分数只针对你自己，不会同步给团队。命中/精准/防御达标后，超出部分几乎不计分。可在属性价值里自定义权重，或导入WOWSimsCN的EP数据。"] = "Scores are private to you and are never sent to the raid. Hit, expertise, and defense above cap barely count. Customize weights under Stat Values, or import WOWSimsCN EP data."
+    L["分数只针对你自己，不会同步给团队。命中/精准/防御达标后，超出部分不计分。同职业选择不同偏向，会推荐不同装备。"] = "Scores are private to you and are never sent to the raid. Hit, expertise, and defense above cap score zero. Different stat biases on the same class recommend different pieces."
+    L["分数只针对你自己，不会同步给团队。命中/精准/防御达标后，超出部分不计分。可在属性价值里自定义权重，或导入WOWSimsCN的EP数据。"] = "Scores are private to you and are never sent to the raid. Hit, expertise, and defense above cap score zero. Customize weights under Stat Values, or import WOWSimsCN EP data."
     L["在表格装备格显示升级分"] = "Show upgrade score on the loot table"
     L["在装备名右侧显示相对你当前同部位的升级分，例如 +23。"] = "Show the upgrade versus your currently equipped piece to the right of the item name, e.g. +23."
     L["在装备名称后面显示相对你当前同部位的升级分，例如 +23。"] = "Show the upgrade versus your currently equipped piece immediately after the item name, e.g. +23."
@@ -2993,20 +2993,22 @@ do -- Mail history
     L["防御"] = "Defense"
     L["推荐"] = "Upgrade"
     L["升级"] = "Upgrade"
-    L["< BGLite 自身评分 >"] = "< BGLite personal score >"
     L["不适合你的护甲类型"] = "Wrong armor type"
     L["不适合你的武器类型"] = "Wrong weapon type"
     L["属性不适合你的天赋"] = "Stats do not match your spec"
     L["职业限定不含你"] = "Class restriction excludes you"
     L["已装备唯一"] = "Unique item already equipped"
     L["不是装备"] = "Not gear"
-    L["命中已达标，额外命中几乎不计"] = "Hit is capped; extra hit barely counts"
+    L["等待物品数据"] = "Waiting for item data"
+    L["无法比较装备栏位"] = "Cannot compare equipment slot"
+    L["无效属性不计分"] = "Ignored stats"
+    L["命中已达标，额外命中不计分"] = "Hit is capped; extra hit scores zero"
     L["命中仅缺口部分计入"] = "Only the hit needed to reach cap is valued"
-    L["精准已达标，额外精准几乎不计"] = "Expertise is capped; extra expertise barely counts"
+    L["精准已达标，额外精准不计分"] = "Expertise is capped; extra expertise scores zero"
     L["精准仅缺口部分计入"] = "Only the expertise needed to reach cap is valued"
-    L["防御已达标，额外防御几乎不计"] = "Defense is capped; extra defense barely counts"
+    L["防御已达标，额外防御不计分"] = "Defense is capped; extra defense scores zero"
     L["防御仅缺口部分计入"] = "Only the defense needed to reach cap is valued"
-    L["破甲已达标，额外破甲几乎不计"] = "Armor penetration is capped; extra ArP barely counts"
+    L["破甲已达标，额外破甲不计分"] = "Armor penetration is capped; extra ArP scores zero"
     L["破甲仅缺口部分计入"] = "Only the ArP needed to reach cap is valued"
     L["特效未计入"] = "On-use/proc effects are not scored"
     L["不适合"] = "Not suitable"
@@ -3023,6 +3025,7 @@ do -- Mail history
     L["自定义"] = "Custom"
     L["重置所有为默认"] = "Reset all to default"
     L["导入WOWSimsCN的EP权重数据"] = "Import WOWSimsCN EP weights"
+    L["WOWSimsCN EP导入说明"] = "Format: paste the full Pawn EP text from WoWSimsCN (English field=value pairs separated by commas; do not paste JSON).\nExample: (Pawn: v1: \"My character\": Class=Warrior, Strength=2.31, CritRating=1.98, HasteRating=1.12, Dps=13.23)\nGet it: open the matching WoWSimsCN version and spec, run the sim, then open EP Weights -> choose the column for your role (DPS/HPS/TPS/DTPS) -> Export -> Pawn EP and copy the whole text.\nEP is a relative stat value, not a percentage; only fields recognized for your current class/spec are imported."
     L["导入"] = "Import"
     L["恢复默认"] = "Restore default"
     L["当前职业暂无属性权重数据。"] = "No stat weights for this class."
@@ -3041,6 +3044,7 @@ do -- Mail history
     L["物理急速等级"] = "Haste rating"
     L["精准等级"] = "Expertise rating"
     L["破甲等级"] = "ArP rating"
+    L["法术穿透"] = "Spell penetration"
     L["法术命中等级"] = "Spell hit rating"
     L["法术暴击等级"] = "Spell crit rating"
     L["法术急速等级"] = "Spell haste rating"

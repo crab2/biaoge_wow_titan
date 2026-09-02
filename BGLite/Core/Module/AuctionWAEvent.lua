@@ -623,29 +623,52 @@ BG.Init(function()
   local modLabel = ""
   return modLabel
  end
+ local function ParseStartAuction(prefix, message)
+  local opcode, auctionIDStr, itemIDStr, moneyStr, durationStr, playerStr, modStr, linkStr, resetStr
+  local isGen2 = false
+  if prefix == wa.AddonChannel then
+   -- Gen1: BiaoGeAuction + comma-delimited payload.  Keep the final field
+   -- unsplit so item links containing commas remain intact.
+   opcode, auctionIDStr, itemIDStr, moneyStr, durationStr, playerStr, modStr, linkStr = strsplit(",", message, 8)
+  elseif prefix:match("^" .. wa.AddonChannel2 .. "$") then
+   -- Gen2: BiaoGeAuction1..10 + caret-delimited payload.
+   opcode, auctionIDStr, itemIDStr, moneyStr, durationStr, playerStr, modStr, linkStr, resetStr = strsplit("^", message)
+   isGen2 = true
+  else
+   return
+  end
+  if opcode ~= "StartAuction" then return end
+
+  local auctionID = tonumber(auctionIDStr)
+  local itemID = tonumber(itemIDStr)
+  local money = tonumber(moneyStr)
+  local duration = tonumber(durationStr)
+  -- Ignore malformed or hostile addon messages before touching item APIs.
+  if not (auctionID and itemID and money and duration)
+      or auctionID <= 0 or itemID <= 0 or money < 0 or duration <= 0 then
+   return
+  end
+  local mod = (modStr and modStr ~= "") and modStr or "normal"
+  if mod == "anonymous" or mod ~= "normal" then return end
+  local link = linkStr and linkStr ~= "" and linkStr or nil
+  local resetThreshold = isGen2 and tonumber(resetStr) or wa.REPEAT_TIME
+  resetThreshold = max(10, resetThreshold or wa.REPEAT_TIME)
+  return auctionID, itemID, money, duration, playerStr, mod, link, resetThreshold, isGen2
+ end
  local function eventHandler(self, event, ...)
   if event == "CHAT_MSG_ADDON" then
    local prefix, message, distribution, v, line = ...
+   if type(prefix) ~= "string" or type(message) ~= "string" then return end
    local opcode, auctionIDStr, itemIDStr, moneyStr, durationStr, playerStr, modStr, linkStr, resetStr, extra
-   local isGen2
    if prefix == wa.AddonChannel then
     opcode, auctionIDStr, itemIDStr, moneyStr, durationStr, playerStr, modStr, linkStr = strsplit(",", message, 8)
-   elseif prefix:match(wa.AddonChannel2) then
+   elseif prefix and prefix:match("^" .. wa.AddonChannel2 .. "$") then
     opcode, auctionIDStr, itemIDStr, moneyStr, durationStr, playerStr, modStr, linkStr, resetStr, extra = strsplit("^", message)
-    isGen2 = true
    end
    if not opcode then return end
    if opcode == "StartAuction" and distribution == "RAID" then
-    local auctionID = tonumber(auctionIDStr)
-    local itemID = tonumber(itemIDStr)
-    local money = tonumber(moneyStr)
-    local duration = tonumber(durationStr)
-    local player = playerStr
-    local mod = modStr
-    -- 匿名拍卖已移除（决策逆转 docs/07 §3.3）：匿名 StartAuction 不创建帧，静默忽略。常规拍卖（mod=normal）不受影响。
-    if mod == "anonymous" then return end
-    local link = linkStr ~= "" and linkStr or nil
-    local resetThreshold = isGen2 and tonumber(resetStr) or wa.REPEAT_TIME
+    local auctionID, itemID, money, duration, player, mod, link, resetThreshold, isGen2 = ParseStartAuction(prefix, message)
+    if not auctionID then return end
     BG.OnItemLoad(link or itemID):ContinueOnItemLoad(function()
      wa.CreateAuction(auctionID, itemID, money, duration, player, mod, link, resetThreshold, isGen2)
      if wa.IsRaidLeader() then

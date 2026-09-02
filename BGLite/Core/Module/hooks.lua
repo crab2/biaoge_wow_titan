@@ -102,7 +102,7 @@ BG.Init2(function()
                     local quality = info.quality
                     local r, g, b = GetItemQualityColor(quality)
                     self:AddLine(" ")
-                    self:AddLine("< BGLite >", 0, .75, 1)
+                    self:AddLine("< bg次bis版 >", 0, .75, 1)
                     if not info.useTotalEarnedForMaxQty then
                         self:AddDoubleLine(AddTexture(tex) .. name, BG.FormatNumber(count) .. "/" .. BG.FormatNumber(maxCount), r, g, b, 1, 1, 1)
                     else
@@ -115,16 +115,6 @@ BG.Init2(function()
                 end
             end
             tinsert(itemFucs, AddInfo)
-        end
-
-        -- 自身装备评分
-        do
-            local function AddGearScore(self, itemID, link, name)
-                if BG.GearScore_AddTooltip then
-                    BG.GearScore_AddTooltip(self, link)
-                end
-            end
-            tinsert(itemFucs, AddGearScore)
         end
 
         -- 背包提示已拍未交易

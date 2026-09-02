@@ -1,6 +1,6 @@
-# BGLite 项目上下文
+# bg次bis版 项目上下文
 
-> 给下一阶段开发用的工程说明书。基于 2026-08-27 从游戏目录拷入本仓库的 `BGLite 2.4.0` 源码通读整理。
+> 给下一阶段开发用的工程说明书。基于 2026-08-27 从游戏目录拷入本仓库的 `bg次bis版 2.4.0` 源码通读整理。
 >
 > 源路径：`D:\World of Warcraft\_classic_titan_\Interface\AddOns\BGLite`
 > 工作副本：`D:\workplace-xq\biaoge_wow_titan\BGLite`
@@ -26,8 +26,8 @@
 | 项 | 事实 |
 |---|---|
 | 前身 | 金团表格 `BiaoGe`（完整版，功能远多于当前） |
-| 当前形态 | `BGLite` 纯净裁剪 + 2026-08-24/25 部分功能回补 |
-| TOC 名 | `BGLite` |
+| 当前形态 | `bg次bis版` 纯净裁剪 + 2026-08-24/25 部分功能回补 |
+| TOC 名 | `bg次bis版`（插件 ID 仍为 `BGLite`） |
 | 存档名 | **`BiaoGe`**（与原版同名，账号级 SavedVariables） |
 | 全局表 | **`BG = {}`**（与原版同名，硬重置） |
 | 共存 | **禁止与原版 BiaoGe 同时启用**；启动后 `PLAYER_ENTERING_WORLD` 检测并弹窗，不自动禁用对方 |
@@ -258,6 +258,13 @@ BiaoGe = {
 }
 ```
 
+`BiaoGe.GearScore[realmID][player]` 和
+`BiaoGe.FilterClassItemDB[realmID][player]` 仅用于当前客户端的装备建议与
+职业过滤，不参与团队/平台排名，也不会通过插件消息自动上传。设置页的
+「重置配置」是用户主动操作，会整体清空 `BiaoGe` 并重载；删除角色数据
+`BG.DeletePlayerData` 同时覆盖这两个本机域。后续字段变更须使用
+`BG.Once(name, dt, fn)` 做兼容迁移，不能在登录时静默删除用户账本。
+
 小地图按钮用 `LibDBIcon:Register(AddonName, plugin, BiaoGe)`，**把整个存档根当 db**，`minimapPos` / `hide` / `lock` 会写在 `BiaoGe` 根上。
 
 `BG.Once(name, dt, fn)` 用 `BiaoGe.options.SearchHistory[name..dt]=true` 做一次性迁移脚本开关。
@@ -342,6 +349,15 @@ BG.Loot[FB].N.Quest / Currency / Faction / Profession / WorldBoss / Team / Shop
 | Gen1 | `BiaoGeAuction` | `,` | `StartAuction,{GetTime()},{itemID},{money},{duration},,{mod},{link}` |
 | Gen2 | `BiaoGeAuction1..10` 轮询 | `^` | 同上 + `resetThreshold`；另有 Pause/Resume |
 
+两代消息都由 `Auction.lua:BG.SendStartAuctionMsg` 发出，接收路径统一为
+`AuctionWAEvent.lua` 的 `CHAT_MSG_ADDON`：Gen1 使用 `BiaoGeAuction`，Gen2
+使用并轮询 `BiaoGeAuction1..10`。字段顺序固定为：`opcode, auctionID,
+itemID, money, duration, player, mod, link[, resetThreshold]`；Gen1 的
+`player` 是空字段，Gen1 不携带重置阈值并使用默认 20 秒。接收端会校验
+数值字段、拒绝未知/匿名模式，并对无效消息静默丢弃；重复 `auctionID`
+由拍卖窗去重。这样一代旧客户端、二代新客户端及混合团队均能继续收到
+拍卖开始消息。
+
 `BiaoGe.Auction.mod` 只保留 **`normal`**。`roll` / `anonymous` 启动时强制改回；收到匿名 `StartAuction` **静默丢弃**。
 
 全团 `AuctionWAEvent` 收到后建竞拍窗（最多 20 扇）。团长喊 `RAID_WARNING`：`{rt1}拍卖开始{rt1} {link} 起拍价：{money}`。
@@ -392,7 +408,7 @@ BG.Loot[FB].N.Quest / Currency / Faction / Profession / WorldBoss / Team / Shop
 
 ### 7.6 对账（`DuiZhang.lua`）
 
-监听团队频道里的金团表格 / RaidLedger / 大脚账单，以及上述 addon 包，存进 `BiaoGe.duizhang[]`。底部「对账」Tab：我的金额 vs 对方金额。可「复制对方账单」覆盖当前金额（对方若也是 BGLite 还会带买家）。
+监听团队频道里的金团表格 / RaidLedger / 大脚账单，以及上述 addon 包，存进 `BiaoGe.duizhang[]`。底部「对账」Tab：我的金额 vs 对方金额。可「复制对方账单」覆盖当前金额（对方若也是 bg次bis版 还会带买家）。
 
 默认保留 24 小时（选项 `duiZhangTime`）。
 
@@ -496,7 +512,7 @@ Locale 里仍残留对应字符串，属于死文案。
 - `{rt1}拍卖开始{rt1}`
 - `{rt6}拍卖成功{rt6}`
 - `{rt7}流拍{rt7}` / `{rt7}拍卖取消{rt7}`
-- 密语交易通报前缀：`BGLite: `（原版是 `BiaoGe: `）
+- 密语交易通报前缀：`bg次bis版: `（原版是 `BiaoGe: `）
 
 团员插件版本：`BG.raidBiaoGeVersion[name]`。部分请求要求对方 ≥ v2.0.0 / v2.0.7。拍卖窗本身要求全团安装本插件（或旧流程的拍卖 WA）；Lite 已去掉「密语发送 WA 字符串」入口。
 
@@ -575,7 +591,7 @@ Locale 残留 `/bgre` `/bgmap` `/BGR` 等，**代码未注册**。
 
 新功能文案：**先在 `Locales/zhCN.lua` 加 key**，三语都要补，否则英文客户端会直接显示中文句子。
 
-说明书强调「纯净版不再新增功能」——若产品方向改为继续增强，说明书和标题 `BGLite-biaoge纯净版` 需要一起改，避免玩家误解。
+说明书强调「纯净版不再新增功能」——若产品方向改为继续增强，说明书和标题 `bg次bis版-biaoge纯净版` 需要一起改，避免玩家误解。
 
 ---
 
@@ -619,9 +635,23 @@ Locale 残留 `/bgre` `/bgmap` `/BGR` 等，**代码未注册**。
 - 去掉 guid 等过度采集
 - 去掉付费模块挂载点
 - 匿名拍卖关闭
-- 密语品牌改为 `BGLite:`
+- 密语品牌改为 `bg次bis版:`
 
 后续加「上传账单到网站」「自动举报」一类能力，需要单独过合规，不要直接从原版拷回来。
+
+### 14.4 拍卖协议回归测试矩阵
+
+提交前至少用双客户端或模拟 `CHAT_MSG_ADDON` 事件覆盖以下组合：
+
+| 发送方 | 接收方 | 核验点 |
+|---|---|---|
+| Gen1 | Gen1 / Gen2 | `BiaoGeAuction`、逗号字段、空 `player`、默认 20 秒阈值 |
+| Gen2 | Gen1 / Gen2 | `BiaoGeAuction1..10` 轮询、`^` 字段、重置阈值 |
+| 任一 | 任一 | 重复 `auctionID` 只创建一个窗口 |
+| 任一 | 任一 | 缺字段、非数字金额/时长、负数和未知模式静默丢弃 |
+
+每组还应验证单件、多件（1 秒间隔）、重拍和暂停/恢复；不同版本组合
+不得因为一条异常消息阻断后续正常拍卖。
 
 ---
 

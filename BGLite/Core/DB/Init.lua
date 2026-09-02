@@ -11,6 +11,19 @@ ns.RN = RN
 
 BG = {}
 
+-- Keep the addon ID and saved variables stable while presenting the new name
+-- in every localized user-facing string.
+BG.AddonDisplayName = "bg次bis版"
+local function ReplaceAddonDisplayName(text)
+    if type(text) ~= "string" then return text end
+    return text:gsub("[Bb][Gg][Ll][Ii][Tt][Ee]", BG.AddonDisplayName)
+end
+for key, value in pairs(ns.L or {}) do
+    if type(value) == "string" then
+        ns.L[key] = ReplaceAddonDisplayName(value)
+    end
+end
+
 ----------tbl元素个数----------
 local function Size(t)
     local s = 0

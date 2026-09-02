@@ -21,6 +21,8 @@ local player = BG.playerName
 do
     pcall(function()
     BiaoGe = BiaoGe or {}
+    -- Filter profiles are local-only preferences. They must not be treated as
+    -- a shared/player ranking database or sent through addon communications.
     if not BiaoGe.FilterClassItemDB then
         BiaoGe.FilterClassItemDB = {}
     end
@@ -356,14 +358,21 @@ do
         local text = link or bt:GetText()
         local itemID, _, _, EquipLoc, _, typeID, subclassID = GetItemInfoInstant(text)
         local num = db.chooseID
+        local filtered
 
         if itemID and num then
             if BG.FilterAll(itemID, typeID, EquipLoc, subclassID) then
                 bt:SetAlpha(alpha_ban)
-                return
+                filtered = true
+            else
+                bt:SetAlpha(alpha_yes)
             end
+        else
+            bt:SetAlpha(alpha_yes)
         end
-        bt:SetAlpha(alpha_yes)
+        if bt.gearScoreListButton and BG.GearScore_UpdateItemListButton then
+            BG.GearScore_UpdateItemListButton(bt.gearScoreListButton, link, filtered)
+        end
     end
 
     function BG.UpdateFilter(bt, link)
@@ -372,7 +381,14 @@ do
         local num = db.chooseID
         if not (link:find("item:") and itemID and num) then
             bt:SetAlpha(alpha_yes)
+            if bt.gearScoreListButton and BG.GearScore_UpdateItemListButton then
+                BG.GearScore_UpdateItemListButton(bt.gearScoreListButton, link, false)
+            end
             return
+        end
+
+        if bt.gearScoreListButton and BG.GearScore_UpdateItemListButton then
+            BG.GearScore_UpdateItemListButton(bt.gearScoreListButton, link)
         end
 
         local item = Item:CreateFromItemID(itemID)
@@ -450,7 +466,9 @@ do
                 else
                     if db.chooseID then
                         local name, link, quality, level, _, _, _, _, EquipLoc, Texture, _, typeID, subclassID, bindType = GetItemInfo(f.itemID)
-                        if BG.FilterAll(f.itemID, typeID, EquipLoc, subclassID) then
+                        local orangeWeaponUpgrade = BG.GearScore_IsOrangeWeaponUpgradeItem
+                            and BG.GearScore_IsOrangeWeaponUpgradeItem(f.itemID, link)
+                        if BG.FilterAll(f.itemID, typeID, EquipLoc, subclassID) and not orangeWeaponUpgrade then
                             f.filter = true
                             f.filterByScheme = true
                             BGA.aura_env.SetFrameColor(f, 2)
